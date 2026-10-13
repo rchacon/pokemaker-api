@@ -1,0 +1,32 @@
+# Local AWS stand-ins for PokeMaker. Start with:  docker compose up -d
+# Data persists in named volumes; `docker compose down -v` wipes it.
+name: pokemaker
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:3.1.0
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    working_dir: /home/dynamodblocal
+    user: root # lets DynamoDB Local write to the named volume
+    ports:
+      - "8001:8000" # 8000 is left free for Uvicorn
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
+
+  minio:
+    # Upstream MinIO stopped publishing container images in 2025; this is the
+    # community-maintained build of the same server (github.com/pgsty/minio).
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: pokemaker
+      MINIO_ROOT_PASSWORD: pokemaker-secret
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console: http://localhost:9001
+    volumes:
+      - minio-data:/data
+
+volumes:
+  dynamodb-data:
+  minio-data:
