@@ -50,7 +50,9 @@ async def test_generate_stores_artwork_and_uses_one_slot(
     # The prompt asks for art only and includes the child's description.
     prompt = provider.prompts[0]
     assert "lightning-bolt ears" in prompt
-    assert "Do not include any text" in prompt
+    assert "Avoid:" in prompt and "text, typography" in prompt
+    assert "Generate only the illustration" in prompt
+    assert "theme: lightning" in prompt  # the card's type steers the palette
     assert "Sparkpup" not in prompt
 
 

@@ -104,22 +104,37 @@ TYPE_THEMES: dict[EnergyType, str] = {
 
 
 def build_artwork_prompt(description: str, energy_type: EnergyType) -> str:
-    """Wrap the child's description in fixed instructions.
+    """Wrap the child's description in fixed art direction.
 
     The description is the only user-controlled part and is length-limited
     upstream. The card's name is deliberately left out: names invite the model
     to paint text, and all text on the card is rendered by the app.
+
+    The art direction aims for hand-painted collectible-card illustration
+    rather than a generic 3D/cartoon look. The composition is 3:2 because
+    that's both the API's landscape size (1536x1024) and the card's art frame.
     """
     return (
-        "An original fictional creature for a children's trading card game. "
-        f"Creature: {description.strip()} "
-        f"Color theme: {energy_type.value} — {TYPE_THEMES[energy_type]}. "
-        "Style: colorful, polished, friendly digital illustration suitable for young "
-        "children; the whole creature is visible and centered with a simple, matching "
-        "background; wide landscape composition. "
-        "Do not include any text, letters, numbers, logos, watermarks, signatures, card "
-        "borders, frames, or user-interface elements. Do not depict any existing "
-        "trademarked character."
+        "Create a premium collectible monster trading card illustration featuring: "
+        f"{description.strip()}\n\n"
+        "Art direction: Beautifully detailed hand-painted digital fantasy illustration, "
+        "inspired by high-end Japanese creature trading card artwork. Expressive character "
+        "design, crisp and carefully defined facial features, vibrant but balanced colors, "
+        "subtle painterly textures, sophisticated lighting, rich environmental detail, "
+        "dynamic composition, and professional illustration quality. Family-friendly and "
+        "appealing to young children.\n\n"
+        f"Elemental theme: {energy_type.value} — let {TYPE_THEMES[energy_type]} shape the "
+        "environment, lighting and color palette.\n\n"
+        "The creature should have a distinctive silhouette, natural anatomy appropriate to "
+        "its fantasy design, and an appealing personality. Integrate the creature naturally "
+        "into a detailed, atmospheric environment.\n\n"
+        "Composition: Horizontal 3:2 illustration. Center the creature as the clear focal "
+        "point, with enough surrounding environment to establish the scene.\n\n"
+        "Avoid: 3D rendering, Pixar-style characters, plastic or glossy toy textures, "
+        "generic AI cartoon aesthetics, blurry details, excessive bloom, text, typography, "
+        "letters, numbers, logos, borders, card frames, watermarks, and any existing "
+        "trademarked character.\n\n"
+        "Generate only the illustration, not the complete trading card."
     )
 
 
