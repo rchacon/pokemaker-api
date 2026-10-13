@@ -21,6 +21,11 @@ import httpx
 import pytest
 from moto.server import ThreadedMotoServer
 
+# src.main builds the module-level `app` (for Uvicorn and Lambda) on import,
+# which reads settings. Tests construct their own Settings, but the import
+# still needs the required variables when there's no .env (e.g. in CI).
+os.environ.setdefault("FAMILY_ID", "belchers")
+
 from scripts.init_local import create_bucket, create_table
 from scripts.seed_profiles import seed
 from src.config import Settings
