@@ -5,9 +5,9 @@ from datetime import date
 import httpx
 import pytest
 
-from src.dependencies import Services
-from src.models.artwork import GenerationStatus, ReservationStatus
-from src.utils.errors import ArtworkStorageError
+from pokemaker.dependencies import Services
+from pokemaker.models.artwork import GenerationStatus, ReservationStatus
+from pokemaker.utils.errors import ArtworkStorageError
 from tests.conftest import FakeProvider
 
 

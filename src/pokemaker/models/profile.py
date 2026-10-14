@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from src.models.base import ApiModel
+from pokemaker.models.base import ApiModel
 
 ProfileRole = Literal["parent", "player"]
 Pin = Field(pattern=r"^[0-9]{4}$", description="Exactly four digits")

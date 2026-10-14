@@ -7,11 +7,11 @@ import time
 import pytest
 from mangum import Mangum
 
+from pokemaker.config import Settings
+from pokemaker.dependencies import build_services
+from pokemaker.integrations.mock_artwork import MockArtworkProvider, render_placeholder
+from pokemaker.main import create_app
 from scripts.init_local import create_table
-from src.config import Settings
-from src.dependencies import build_services
-from src.integrations.mock_artwork import MockArtworkProvider, render_placeholder
-from src.main import create_app
 
 
 async def test_build_services_closes_aws_clients(settings: Settings, services):

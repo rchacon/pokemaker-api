@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import get_settings
-from src.dependencies import build_services
+from pokemaker.config import get_settings
+from pokemaker.dependencies import build_services
 
 
 async def main() -> None:

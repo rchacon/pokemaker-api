@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from src.models.artwork import GenerationStatus
-from src.models.card import Attack, CardCreate, CardUpdate, card_status
+from pokemaker.models.artwork import GenerationStatus
+from pokemaker.models.card import Attack, CardCreate, CardUpdate, card_status
 
 
 def test_defaults_make_a_valid_blank_card():

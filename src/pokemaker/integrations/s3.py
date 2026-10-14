@@ -10,8 +10,8 @@ from typing import Any
 
 from botocore.config import Config
 
-from src.config import Settings
-from src.integrations.aws import BOTO_CONFIG, client_kwargs, get_session
+from pokemaker.config import Settings
+from pokemaker.integrations.aws import BOTO_CONFIG, client_kwargs, get_session
 
 logger = logging.getLogger(__name__)
 

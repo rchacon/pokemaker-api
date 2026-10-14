@@ -4,8 +4,8 @@ from datetime import date
 
 import httpx
 
-from src.dependencies import Services
-from src.repositories.quota_repository import ReserveOutcome, TransactionContention
+from pokemaker.dependencies import Services
+from pokemaker.repositories.quota_repository import ReserveOutcome, TransactionContention
 
 
 async def _reserve(services: Services, day: date, limit: int = 10) -> ReserveOutcome:

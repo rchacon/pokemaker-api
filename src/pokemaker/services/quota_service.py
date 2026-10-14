@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from src.config import Settings
-from src.models.quota import QuotaStatus
-from src.repositories.quota_repository import QuotaRepository
-from src.utils.clock import Clock, iso, next_utc_midnight, utc_day, utc_now
+from pokemaker.config import Settings
+from pokemaker.models.quota import QuotaStatus
+from pokemaker.repositories.quota_repository import QuotaRepository
+from pokemaker.utils.clock import Clock, iso, next_utc_midnight, utc_day, utc_now
 
 
 class QuotaService:

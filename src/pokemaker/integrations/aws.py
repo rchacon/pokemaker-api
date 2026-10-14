@@ -8,7 +8,7 @@ from typing import Any
 import aioboto3
 from botocore.config import Config
 
-from src.config import Settings
+from pokemaker.config import Settings
 
 # Tight timeouts: every DynamoDB/S3 call here should take milliseconds. botocore's
 # "standard" retry mode retries throttling and transient errors with backoff.

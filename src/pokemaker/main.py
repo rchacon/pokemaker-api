@@ -1,7 +1,7 @@
 """FastAPI application entry point.
 
-Locally:   uvicorn src.main:app --reload
-In Lambda: handler = src.main.handler  (Mangum adapts API Gateway events to ASGI)
+Locally:   uvicorn pokemaker.main:app --reload
+In Lambda: handler = pokemaker.main.handler  (Mangum adapts API Gateway events to ASGI)
 
 Mangum runs the lifespan (startup + shutdown) around *every* Lambda invocation.
 That's deliberate: async clients are bound to the event loop that created them,
@@ -23,12 +23,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mangum import Mangum
 
-from src.config import Settings, get_settings
-from src.dependencies import Services, ServicesDep, build_services
-from src.routes import artwork, cards, profiles
-from src.utils.errors import PokeMakerError
-from src.utils.logging import configure_logging
-from src.utils.middleware import BodySizeLimitMiddleware
+from pokemaker.config import Settings, get_settings
+from pokemaker.dependencies import Services, ServicesDep, build_services
+from pokemaker.routes import artwork, cards, profiles
+from pokemaker.utils.errors import PokeMakerError
+from pokemaker.utils.logging import configure_logging
+from pokemaker.utils.middleware import BodySizeLimitMiddleware
 
 logger = logging.getLogger(__name__)
 

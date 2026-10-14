@@ -22,13 +22,13 @@ import logging
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
-from src.config import Settings, get_settings
-from src.integrations.dynamodb import dynamodb_client
-from src.models.card import SCHEMA_VERSION, Attack, CardCreate, EnergyType, Stage, card_status
-from src.models.profile import Profile
-from src.repositories.card_repository import CardRepository
-from src.repositories.profile_repository import ProfileRepository
-from src.utils.clock import iso, utc_now
+from pokemaker.config import Settings, get_settings
+from pokemaker.integrations.dynamodb import dynamodb_client
+from pokemaker.models.card import SCHEMA_VERSION, Attack, CardCreate, EnergyType, Stage, card_status
+from pokemaker.models.profile import Profile
+from pokemaker.repositories.card_repository import CardRepository
+from pokemaker.repositories.profile_repository import ProfileRepository
+from pokemaker.utils.clock import iso, utc_now
 
 logger = logging.getLogger("seed")
 

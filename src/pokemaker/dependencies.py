@@ -3,7 +3,7 @@
 `build_services()` opens every long-lived resource (DynamoDB and S3 clients,
 the OpenAI HTTP connection pool) inside one AsyncExitStack, so they are all
 closed in reverse order on shutdown, even if startup fails halfway through.
-The FastAPI lifespan in `src.main` enters it once; tests enter it directly.
+The FastAPI lifespan in `pokemaker.main` enters it once; tests enter it directly.
 """
 
 from __future__ import annotations
@@ -16,21 +16,21 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request
 
-from src.config import Settings
-from src.integrations.artwork_provider import ArtworkProvider
-from src.integrations.aws import client_kwargs, get_session
-from src.integrations.dynamodb import dynamodb_client
-from src.integrations.mock_artwork import MockArtworkProvider
-from src.integrations.openai import openai_provider
-from src.integrations.s3 import ArtworkStorage, artwork_storage
-from src.repositories.card_repository import CardRepository
-from src.repositories.profile_repository import ProfileRepository
-from src.repositories.quota_repository import QuotaRepository
-from src.services.artwork_service import ArtworkService
-from src.services.card_service import CardService
-from src.services.pin_service import PinService
-from src.services.quota_service import QuotaService
-from src.utils.clock import Clock, utc_now
+from pokemaker.config import Settings
+from pokemaker.integrations.artwork_provider import ArtworkProvider
+from pokemaker.integrations.aws import client_kwargs, get_session
+from pokemaker.integrations.dynamodb import dynamodb_client
+from pokemaker.integrations.mock_artwork import MockArtworkProvider
+from pokemaker.integrations.openai import openai_provider
+from pokemaker.integrations.s3 import ArtworkStorage, artwork_storage
+from pokemaker.repositories.card_repository import CardRepository
+from pokemaker.repositories.profile_repository import ProfileRepository
+from pokemaker.repositories.quota_repository import QuotaRepository
+from pokemaker.services.artwork_service import ArtworkService
+from pokemaker.services.card_service import CardService
+from pokemaker.services.pin_service import PinService
+from pokemaker.services.quota_service import QuotaService
+from pokemaker.utils.clock import Clock, utc_now
 
 logger = logging.getLogger(__name__)
 

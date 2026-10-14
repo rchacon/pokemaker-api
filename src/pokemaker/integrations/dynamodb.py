@@ -14,8 +14,8 @@ from typing import Any
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
-from src.config import Settings
-from src.integrations.aws import client_kwargs, get_session
+from pokemaker.config import Settings
+from pokemaker.integrations.aws import client_kwargs, get_session
 
 _serializer = TypeSerializer()
 _deserializer = TypeDeserializer()

@@ -3,7 +3,7 @@ failure reconciliation.
 
 The core difficulty: a DynamoDB transaction and a paid HTTP call to OpenAI can
 never be made atomic together. So instead of pretending, every step is recorded
-in a generation record (see `src.models.artwork` for the state machine) and
+in a generation record (see `pokemaker.models.artwork` for the state machine) and
 each failure path decides explicitly what happens to the reserved quota slot:
 
     failure                                   quota slot   why
@@ -33,33 +33,33 @@ from datetime import date, datetime, timedelta
 from typing import Any, NoReturn
 from uuid import UUID
 
-from src.config import Settings
-from src.integrations.artwork_provider import (
+from pokemaker.config import Settings
+from pokemaker.integrations.artwork_provider import (
     ArtworkProvider,
     GeneratedImage,
     ProviderAmbiguousError,
     ProviderFailedError,
     ProviderRejectedError,
 )
-from src.integrations.s3 import ArtworkStorage
-from src.models.artwork import (
+from pokemaker.integrations.s3 import ArtworkStorage
+from pokemaker.models.artwork import (
     GenerationRecord,
     GenerationResponse,
     GenerationStatus,
     ReservationStatus,
 )
-from src.models.card import Card, EnergyType
-from src.repositories.card_repository import CardRepository
-from src.repositories.quota_repository import (
+from pokemaker.models.card import Card, EnergyType
+from pokemaker.repositories.card_repository import CardRepository
+from pokemaker.repositories.quota_repository import (
     QuotaRepository,
     ReserveOutcome,
     TransactionContention,
 )
-from src.services.card_service import CardService
-from src.services.quota_service import QuotaService
-from src.utils import keys
-from src.utils.clock import Clock, iso, utc_day, utc_now
-from src.utils.errors import (
+from pokemaker.services.card_service import CardService
+from pokemaker.services.quota_service import QuotaService
+from pokemaker.utils import keys
+from pokemaker.utils.clock import Clock, iso, utc_day, utc_now
+from pokemaker.utils.errors import (
     ArtworkProviderError,
     ArtworkRejectedError,
     ArtworkStorageError,

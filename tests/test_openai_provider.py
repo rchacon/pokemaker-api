@@ -7,13 +7,13 @@ import httpx2
 import pytest
 from openai import AsyncOpenAI
 
-from src.config import Settings
-from src.integrations.artwork_provider import (
+from pokemaker.config import Settings
+from pokemaker.integrations.artwork_provider import (
     ProviderAmbiguousError,
     ProviderFailedError,
     ProviderRejectedError,
 )
-from src.integrations.openai import OpenAIArtworkProvider, openai_provider
+from pokemaker.integrations.openai import OpenAIArtworkProvider, openai_provider
 
 IMAGE = b"RIFF....WEBPVP8 fake"
 

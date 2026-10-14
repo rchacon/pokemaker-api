@@ -20,7 +20,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from src.integrations.dynamodb import (
+from pokemaker.integrations.dynamodb import (
     cancellation_reasons,
     error_code,
     from_item,
@@ -28,8 +28,8 @@ from src.integrations.dynamodb import (
     to_item,
     to_value,
 )
-from src.models.artwork import GenerationStatus, ReservationStatus
-from src.utils import keys
+from pokemaker.models.artwork import GenerationStatus, ReservationStatus
+from pokemaker.utils import keys
 
 
 class ReserveOutcome(StrEnum):

@@ -29,7 +29,7 @@ docker compose up -d
 python scripts/init_local.py
 
 # 5. Run the API on http://localhost:8000 (docs at /api/docs)
-uvicorn src.main:app --reload
+uvicorn pokemaker.main:app --reload
 ```
 
 Then start the frontend in `../pokemaker-app` (`npm install && npm run dev`) and open
@@ -117,7 +117,7 @@ Notable codes: `VALIDATION_ERROR` 422, `PROFILE_NOT_FOUND`/`CARD_NOT_FOUND` 404,
 ## Layout
 
 ```text
-src/
+src/pokemaker/         The `pokemaker` package (src layout: imports never mention `src`)
 ├── main.py            FastAPI app, lifespan, error handlers, Mangum `handler`
 ├── config.py          Settings from env (model/size/quality allowlists)
 ├── dependencies.py    build_services(): opens/closes all clients; FastAPI deps

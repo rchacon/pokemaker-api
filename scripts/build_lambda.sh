@@ -25,8 +25,8 @@ python3 -m pip install --quiet \
   --only-binary=:all: \
   --requirement dist/requirements.txt
 
-cp -r src "$BUILD/src"
+cp -r src/pokemaker "$BUILD/pokemaker"
 find "$BUILD" -type d -name "__pycache__" -prune -exec rm -rf {} +
 
 (cd "$BUILD" && zip -qr9 ../lambda.zip .)
-echo "Built dist/lambda.zip ($(du -h dist/lambda.zip | cut -f1)); handler: src.main.handler"
+echo "Built dist/lambda.zip ($(du -h dist/lambda.zip | cut -f1)); handler: pokemaker.main.handler"

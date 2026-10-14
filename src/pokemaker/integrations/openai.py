@@ -21,8 +21,8 @@ import httpx2
 import openai
 from openai import AsyncOpenAI
 
-from src.config import Settings
-from src.integrations.artwork_provider import (
+from pokemaker.config import Settings
+from pokemaker.integrations.artwork_provider import (
     GeneratedImage,
     ProviderAmbiguousError,
     ProviderFailedError,

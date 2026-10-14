@@ -4,8 +4,8 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from src.integrations.dynamodb import from_item, is_condition_failed, to_item, to_value
-from src.utils import keys
+from pokemaker.integrations.dynamodb import from_item, is_condition_failed, to_item, to_value
+from pokemaker.utils import keys
 
 
 class ProfileRepository:

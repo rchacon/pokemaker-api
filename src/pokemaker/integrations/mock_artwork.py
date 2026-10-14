@@ -13,7 +13,7 @@ import hashlib
 import struct
 import zlib
 
-from src.integrations.artwork_provider import GeneratedImage
+from pokemaker.integrations.artwork_provider import GeneratedImage
 
 WIDTH, HEIGHT = 384, 256
 

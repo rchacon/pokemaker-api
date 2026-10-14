@@ -17,10 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from botocore.exceptions import ClientError
 
+from pokemaker.config import Settings, get_settings
+from pokemaker.integrations.aws import client_kwargs, get_session
+from pokemaker.integrations.dynamodb import dynamodb_client, error_code
 from scripts.seed_profiles import seed
-from src.config import Settings, get_settings
-from src.integrations.aws import client_kwargs, get_session
-from src.integrations.dynamodb import dynamodb_client, error_code
 
 logger = logging.getLogger("init")
 

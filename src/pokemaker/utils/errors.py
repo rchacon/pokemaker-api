@@ -1,4 +1,4 @@
-"""Domain errors. Services raise these; `src.main` turns them into JSON responses.
+"""Domain errors. Services raise these; `pokemaker.main` turns them into JSON responses.
 
 Keeping HTTP status codes next to the error types (rather than in each route)
 keeps route handlers thin and error responses consistent:

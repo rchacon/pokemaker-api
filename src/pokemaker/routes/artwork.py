@@ -4,10 +4,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Response, status
 
-from src.dependencies import ArtworkServiceDep, QuotaServiceDep, RequireUnlocked
-from src.models.artwork import ArtworkGenerateRequest, GenerationResponse
-from src.models.quota import QuotaStatus
-from src.routes.params import CardId, IdempotencyKey, ProfileId
+from pokemaker.dependencies import ArtworkServiceDep, QuotaServiceDep, RequireUnlocked
+from pokemaker.models.artwork import ArtworkGenerateRequest, GenerationResponse
+from pokemaker.models.quota import QuotaStatus
+from pokemaker.routes.params import CardId, IdempotencyKey, ProfileId
 
 router = APIRouter(tags=["artwork"])
 

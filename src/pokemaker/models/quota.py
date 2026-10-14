@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.models.base import ApiModel
+from pokemaker.models.base import ApiModel
 
 
 class QuotaStatus(ApiModel):

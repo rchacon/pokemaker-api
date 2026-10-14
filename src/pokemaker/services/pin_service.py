@@ -12,17 +12,17 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from src.config import Settings
-from src.models.profile import UnlockResponse
-from src.repositories.profile_repository import ProfileRepository
-from src.utils.clock import Clock, iso, utc_now
-from src.utils.errors import (
+from pokemaker.config import Settings
+from pokemaker.models.profile import UnlockResponse
+from pokemaker.repositories.profile_repository import ProfileRepository
+from pokemaker.utils.clock import Clock, iso, utc_now
+from pokemaker.utils.errors import (
     PinRequiredError,
     ProfileLockedError,
     ProfileNotFoundError,
     WrongPinError,
 )
-from src.utils.security import TokenClaims, hash_pin, make_token, read_token, verify_pin
+from pokemaker.utils.security import TokenClaims, hash_pin, make_token, read_token, verify_pin
 
 logger = logging.getLogger(__name__)
 

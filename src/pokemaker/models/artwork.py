@@ -20,9 +20,9 @@ from enum import StrEnum
 
 from pydantic import Field
 
-from src.models.base import ApiModel, CleanStr
-from src.models.card import Card
-from src.models.quota import QuotaStatus
+from pokemaker.models.base import ApiModel, CleanStr
+from pokemaker.models.card import Card
+from pokemaker.models.quota import QuotaStatus
 
 
 class GenerationStatus(StrEnum):

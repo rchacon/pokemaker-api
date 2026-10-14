@@ -21,23 +21,23 @@ import httpx
 import pytest
 from moto.server import ThreadedMotoServer
 
-# src.main builds the module-level `app` (for Uvicorn and Lambda) on import,
+# pokemaker.main builds the module-level `app` (for Uvicorn and Lambda) on import,
 # which reads settings. Tests construct their own Settings, but the import
 # still needs the required variables when there's no .env (e.g. in CI).
 os.environ.setdefault("FAMILY_ID", "belchers")
 
-from scripts.init_local import create_bucket, create_table
-from scripts.seed_profiles import seed
-from src.config import Settings
-from src.dependencies import Services, build_services
-from src.integrations.artwork_provider import (
+from pokemaker.config import Settings
+from pokemaker.dependencies import Services, build_services
+from pokemaker.integrations.artwork_provider import (
     GeneratedImage,
     ProviderAmbiguousError,
     ProviderFailedError,
     ProviderRejectedError,
 )
-from src.integrations.mock_artwork import render_placeholder
-from src.main import create_app
+from pokemaker.integrations.mock_artwork import render_placeholder
+from pokemaker.main import create_app
+from scripts.init_local import create_bucket, create_table
+from scripts.seed_profiles import seed
 
 
 def _free_port() -> int:

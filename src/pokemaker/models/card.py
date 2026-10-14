@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints
 
-from src.models.base import ApiModel, CleanStr
+from pokemaker.models.base import ApiModel, CleanStr
 
 SCHEMA_VERSION = 1
 

@@ -5,8 +5,8 @@ import asyncio
 import httpx
 import pytest
 
+from pokemaker.utils.security import TokenClaims, hash_pin, make_token, read_token, verify_pin
 from scripts.seed_profiles import seed
-from src.utils.security import TokenClaims, hash_pin, make_token, read_token, verify_pin
 
 CARD = {"name": "Pinpup", "description": "a puppy guarding a treasure chest"}
 

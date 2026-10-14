@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response, status
 
-from src.dependencies import CardServiceDep, RequireUnlocked
-from src.models.card import Card, CardCreate, CardUpdate
-from src.routes.params import CardId, ProfileId
+from pokemaker.dependencies import CardServiceDep, RequireUnlocked
+from pokemaker.models.card import Card, CardCreate, CardUpdate
+from pokemaker.routes.params import CardId, ProfileId
 
 router = APIRouter(prefix="/api/profiles/{profile_id}/cards", tags=["cards"])
 

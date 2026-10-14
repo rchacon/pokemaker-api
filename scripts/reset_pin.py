@@ -16,9 +16,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import get_settings
-from src.integrations.dynamodb import dynamodb_client
-from src.repositories.profile_repository import ProfileRepository
+from pokemaker.config import get_settings
+from pokemaker.integrations.dynamodb import dynamodb_client
+from pokemaker.repositories.profile_repository import ProfileRepository
 
 
 async def reset(profile_id: str) -> None:
