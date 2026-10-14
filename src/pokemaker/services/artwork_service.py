@@ -104,37 +104,69 @@ TYPE_THEMES: dict[EnergyType, str] = {
 
 
 def build_artwork_prompt(description: str, energy_type: EnergyType) -> str:
-    """Wrap the child's description in fixed art direction.
+    """Build a consistent, high-quality creature artwork prompt.
+
+    Emphasizes cinematic lighting, dimensionality, and realistic
+    materials while preserving expressive fantasy creature design.
 
     The description is the only user-controlled part and is length-limited
     upstream. The card's name is deliberately left out: names invite the model
-    to paint text, and all text on the card is rendered by the app.
-
-    The art direction aims for hand-painted collectible-card illustration
-    rather than a generic 3D/cartoon look. The composition is 3:2 because
-    that's both the API's landscape size (1536x1024) and the card's art frame.
+    to paint text, and all text on the card is rendered by the app. The
+    composition is 3:2 to match both the 1536x1024 output and the card's art frame.
     """
     return (
-        "Create a premium collectible monster trading card illustration featuring: "
-        f"{description.strip()}\n\n"
-        "Art direction: Beautifully detailed hand-painted digital fantasy illustration, "
-        "inspired by high-end Japanese creature trading card artwork. Expressive character "
-        "design, crisp and carefully defined facial features, vibrant but balanced colors, "
-        "subtle painterly textures, sophisticated lighting, rich environmental detail, "
-        "dynamic composition, and professional illustration quality. Family-friendly and "
-        "appealing to young children.\n\n"
-        f"Elemental theme: {energy_type.value} — let {TYPE_THEMES[energy_type]} shape the "
-        "environment, lighting and color palette.\n\n"
-        "The creature should have a distinctive silhouette, natural anatomy appropriate to "
-        "its fantasy design, and an appealing personality. Integrate the creature naturally "
-        "into a detailed, atmospheric environment.\n\n"
-        "Composition: Horizontal 3:2 illustration. Center the creature as the clear focal "
-        "point, with enough surrounding environment to establish the scene.\n\n"
-        "Avoid: 3D rendering, Pixar-style characters, plastic or glossy toy textures, "
-        "generic AI cartoon aesthetics, blurry details, excessive bloom, text, typography, "
-        "letters, numbers, logos, borders, card frames, watermarks, and any existing "
-        "trademarked character.\n\n"
-        "Generate only the illustration, not the complete trading card."
+        "Create a premium Japanese fantasy creature trading card illustration "
+        f"featuring: {description.strip()}\n\n"
+        "ART STYLE:\n"
+        "Highly detailed, semi-realistic digital fantasy illustration with "
+        "expressive, stylized creature design. Professional collectible card "
+        "artwork quality, with crisp details, refined rendering, rich colors, "
+        "and carefully controlled painterly textures. "
+        "The creature should feel alive and physically present in its world, "
+        "not like a cartoon sticker or a 3D toy. "
+        "Family-friendly, imaginative, and appealing to children.\n\n"
+        "LIGHTING AND MATERIALS:\n"
+        "Use cinematic, physically believable lighting with a clearly "
+        "defined primary light source appropriate to the environment. "
+        "Strong dimensional modeling through natural highlights, "
+        "soft reflected fill light, realistic shadow gradients, "
+        "and subtle ambient occlusion. "
+        "Materials should respond naturally to light: "
+        "skin with fine surface texture and nuanced reflections, "
+        "fins or wings with delicate translucency where appropriate, "
+        "and convincing variation in roughness and color. "
+        "Use restrained subsurface scattering where appropriate. "
+        "Avoid uniformly illuminated surfaces and flat shading.\n\n"
+        "ENVIRONMENT:\n"
+        f"Elemental theme: {energy_type.value}. "
+        f"Palette and mood: {TYPE_THEMES[energy_type]}. "
+        "Create a richly detailed, atmospheric environment that "
+        "supports the creature's elemental identity. "
+        "Use environmental light, reflected colors, atmospheric "
+        "perspective, and natural depth of field to integrate "
+        "the creature into the scene. "
+        "The background should enhance the subject without "
+        "competing for attention.\n\n"
+        "CHARACTER DESIGN:\n"
+        "Distinctive silhouette, appealing personality, expressive "
+        "eyes and facial features, and anatomically coherent fantasy "
+        "design. The creature should have a strong visual identity "
+        "and feel like an original collectible monster.\n\n"
+        "COMPOSITION:\n"
+        "Horizontal 3:2 illustration. "
+        "The creature is the unmistakable focal point, occupying "
+        "approximately 60-70% of the image height. "
+        "Use a dynamic three-quarter perspective where appropriate. "
+        "Leave enough surrounding environment to establish the scene. "
+        "Professional composition with a clear focal hierarchy.\n\n"
+        "AVOID:\n"
+        "3D renders, Pixar-style animation, plastic toy surfaces, "
+        "generic children's cartoon aesthetics, muddy brushwork, "
+        "flat diffuse lighting, excessive bloom, oversaturated colors, "
+        "blurry subject details, artificial-looking reflections, "
+        "text, typography, letters, numbers, logos, borders, "
+        "card frames, watermarks, and existing trademarked characters.\n\n"
+        "Generate ONLY the artwork, not the trading card."
     )
 
 
