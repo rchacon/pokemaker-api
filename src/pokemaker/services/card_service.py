@@ -82,7 +82,8 @@ class CardService:
         return (await self._to_cards([item]))[0]
 
     async def create_card(self, profile_id: str, data: CardCreate) -> Card:
-        await self.require_profile(profile_id)
+        # No separate profile check: allocating the card number already fails
+        # for a missing profile (see _new_card_item), saving a round trip.
         item = await self._new_card_item(profile_id, data)
         await self._cards.create_card(item)
         return (await self._to_cards([item]))[0]
@@ -144,6 +145,8 @@ class CardService:
 
     async def _new_card_item(self, profile_id: str, data: CardFields) -> dict[str, Any]:
         number = await self._profiles.next_card_number(profile_id)
+        if number is None:
+            raise ProfileNotFoundError(f"No profile named {profile_id!r}")
         now = iso(self._clock())
         return _fields_for_storage(data) | {
             "cardId": str(uuid4()),

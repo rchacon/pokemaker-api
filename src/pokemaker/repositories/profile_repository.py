@@ -46,21 +46,30 @@ class ProfileRepository:
             raise
         return True
 
-    async def next_card_number(self, profile_id: str) -> int:
+    async def next_card_number(self, profile_id: str) -> int | None:
         """Atomically allocate the next card number for a profile.
 
         `ADD` is applied atomically by DynamoDB, so two concurrent creates can
         never get the same number, however many processes are running. If the
         card write that follows fails, the number is simply skipped.
+
+        Returns None if the profile doesn't exist. The condition makes this
+        double as the profile check, so creating a card needs no separate
+        GetItem round trip.
         """
-        response = await self._client.update_item(
-            TableName=self._table,
-            Key={"PK": {"S": self._pk}, "SK": {"S": keys.profile_sk(profile_id)}},
-            UpdateExpression="ADD cardCounter :one",
-            ConditionExpression="attribute_exists(PK)",
-            ExpressionAttributeValues={":one": {"N": "1"}},
-            ReturnValues="UPDATED_NEW",
-        )
+        try:
+            response = await self._client.update_item(
+                TableName=self._table,
+                Key={"PK": {"S": self._pk}, "SK": {"S": keys.profile_sk(profile_id)}},
+                UpdateExpression="ADD cardCounter :one",
+                ConditionExpression="attribute_exists(PK)",
+                ExpressionAttributeValues={":one": {"N": "1"}},
+                ReturnValues="UPDATED_NEW",
+            )
+        except ClientError as exc:
+            if is_condition_failed(exc):
+                return None
+            raise
         return int(response["Attributes"]["cardCounter"]["N"])
 
     # --- PINs ---------------------------------------------------------------------

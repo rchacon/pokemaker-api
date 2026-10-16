@@ -145,3 +145,20 @@ async def test_seed_rejects_invalid_profile_ids_before_writing(client: httpx.Asy
     with pytest.raises(ValidationError):
         await seed(settings, {"Dad": {"displayName": "Dad"}})
     assert len((await client.get("/api/profiles")).json()) == 2
+
+
+async def test_create_card_needs_no_separate_profile_lookup(
+    client: httpx.AsyncClient, services, monkeypatch
+):
+    # Allocating the card number already fails for a missing profile, so
+    # creating a card skips the extra GetItem round trip.
+    async def no_lookup(profile_id):
+        raise AssertionError("create_card should not call require_profile")
+
+    monkeypatch.setattr(services.cards, "require_profile", no_lookup)
+    assert (
+        await client.post("/api/profiles/kid1/cards", json={"name": "Quick"})
+    ).status_code == 201
+    missing = await client.post("/api/profiles/stranger/cards", json={})
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "PROFILE_NOT_FOUND"
