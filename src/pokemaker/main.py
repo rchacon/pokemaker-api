@@ -3,9 +3,11 @@
     uvicorn pokemaker.main:app --reload
 
 The app runs as one long-lived process, so the lifespan below runs once at
-startup: every client is created once and its connection pool is shared by all
-requests, and the event loop interleaves many requests that are mostly waiting
-on the network. That's what asyncio is good at.
+startup: every client (DynamoDB, S3) is created once and its connection pool
+is shared by all requests, and the event loop interleaves many requests that
+are mostly waiting on the network. That's what asyncio is good at. Correctness
+never depends on this process's memory, though: card versions and card numbers
+live in DynamoDB.
 """
 
 from __future__ import annotations
@@ -22,8 +24,10 @@ from fastapi.responses import JSONResponse
 
 from pokemaker.config import Settings, get_settings
 from pokemaker.dependencies import Services, ServicesDep, build_services
+from pokemaker.routes import cards, profiles
 from pokemaker.utils.errors import PokeMakerError
 from pokemaker.utils.logging import configure_logging
+from pokemaker.utils.middleware import BodySizeLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,8 @@ def create_app(
         openapi_url="/api/openapi.json",
     )
     app.state.settings = settings
+    # Starlette runs the middleware added *last* first, so requests pass through
+    # body-size limit → CORS → routes.
     if settings.cors_allow_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -59,6 +65,7 @@ def create_app(
             allow_methods=["GET", "POST", "PUT", "DELETE"],
             allow_headers=["Content-Type"],
         )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 
     @app.exception_handler(PokeMakerError)
     async def domain_error(_: Request, exc: PokeMakerError) -> JSONResponse:
@@ -74,14 +81,21 @@ def create_app(
 
     @app.get("/api/health", tags=["health"])
     async def health(services: ServicesDep) -> JSONResponse:
+        # Two independent I/O checks, so run them concurrently: the endpoint
+        # takes as long as the slower check rather than the sum of both.
         try:
             async with asyncio.timeout(5):
-                await services.dynamodb.describe_table(TableName=settings.table_name)  # type: ignore[attr-defined]
+                await asyncio.gather(
+                    services.dynamodb.describe_table(TableName=settings.table_name),  # type: ignore[attr-defined]
+                    services.storage.ping(),
+                )
         except Exception as exc:
             logger.warning("health check failed", extra={"error": repr(exc)})
             return JSONResponse({"status": "degraded"}, status_code=503)
         return JSONResponse({"status": "ok"})
 
+    app.include_router(profiles.router)
+    app.include_router(cards.router)
     return app
 
 

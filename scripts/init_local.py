@@ -1,9 +1,9 @@
-"""Create the local DynamoDB table. Idempotent.
+"""Create the local DynamoDB table and MinIO bucket, then seed data. Idempotent.
 
     docker compose up -d
     python scripts/init_local.py
 
-In AWS, Terraform creates the table.
+In AWS, Terraform creates the table and bucket; only seed_profiles.py is run there.
 """
 
 from __future__ import annotations
@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from botocore.exceptions import ClientError
 
 from pokemaker.config import Settings, get_settings
+from pokemaker.integrations.aws import client_kwargs, get_session
 from pokemaker.integrations.dynamodb import dynamodb_client, error_code
+from scripts.seed_profiles import seed
 
 logger = logging.getLogger("init")
 
@@ -55,11 +57,27 @@ async def create_table(settings: Settings) -> None:
             logger.info("TTL not changed: %s", error_code(exc))
 
 
+async def create_bucket(settings: Settings) -> None:
+    async with get_session().client(
+        "s3", **client_kwargs(settings, settings.s3_endpoint_url)
+    ) as s3:
+        try:
+            await s3.create_bucket(Bucket=settings.artwork_bucket)
+            logger.info("bucket %s created", settings.artwork_bucket)
+        except ClientError as exc:
+            if error_code(exc) not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                raise
+            logger.info("bucket %s already exists", settings.artwork_bucket)
+
+
 async def main() -> None:
     settings = get_settings()
-    if not settings.dynamodb_endpoint_url:
-        sys.exit("init_local.py only runs against a local endpoint (see .env.example).")
-    await create_table(settings)
+    if not (settings.dynamodb_endpoint_url and settings.s3_endpoint_url):
+        sys.exit("init_local.py only runs against local endpoints (see .env.example).")
+    # The table and the bucket don't depend on each other: create them concurrently.
+    await asyncio.gather(create_table(settings), create_bucket(settings))
+    # Seeding needs the table, so it runs after.
+    await seed(settings)
     logger.info("local environment ready")
 
 
