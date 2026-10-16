@@ -34,6 +34,10 @@ class CardNotFoundError(NotFoundError):
     code = "CARD_NOT_FOUND"
 
 
+class GenerationNotFoundError(NotFoundError):
+    code = "GENERATION_NOT_FOUND"
+
+
 class PinRequiredError(PokeMakerError):
     """The profile has a PIN and the request has no valid unlock token for it."""
 
@@ -58,3 +62,44 @@ class VersionConflictError(PokeMakerError):
 
     status_code = 409
     code = "VERSION_CONFLICT"
+
+
+class IdempotencyKeyReusedError(PokeMakerError):
+    """The same Idempotency-Key was sent for a *different* card."""
+
+    status_code = 409
+    code = "IDEMPOTENCY_KEY_REUSED"
+
+
+class QuotaExceededError(PokeMakerError):
+    status_code = 429
+    code = "QUOTA_EXCEEDED"
+
+
+class ArtworkRejectedError(PokeMakerError):
+    """The image provider refused the prompt (e.g. safety system). Quota is released."""
+
+    status_code = 422
+    code = "ARTWORK_REJECTED"
+
+
+class ArtworkProviderError(PokeMakerError):
+    status_code = 502
+    code = "ARTWORK_PROVIDER_ERROR"
+
+
+class ArtworkTimeoutError(PokeMakerError):
+    status_code = 504
+    code = "ARTWORK_TIMEOUT"
+
+
+class ArtworkStorageError(PokeMakerError):
+    status_code = 502
+    code = "ARTWORK_STORAGE_ERROR"
+
+
+class ServiceBusyError(PokeMakerError):
+    """Contention we could not resolve with a few retries (e.g. transaction conflicts)."""
+
+    status_code = 503
+    code = "SERVICE_BUSY"

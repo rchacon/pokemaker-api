@@ -88,6 +88,9 @@ async def test_pin_protects_changes_but_not_viewing(client: httpx.AsyncClient):
         client.put(url, json={**CARD, "version": 1}),
         client.delete(url),
         client.post(f"{url}/duplicate"),
+        client.post(
+            f"{url}/artwork", headers={"Idempotency-Key": "8b0f2c4e-0000-4000-8000-000000000001"}
+        ),
         _set_pin(client, "kid1", "0000"),
     ]
     for response in await asyncio.gather(*attempts):

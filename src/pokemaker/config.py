@@ -1,12 +1,24 @@
-"""Application settings, loaded from environment variables (and `.env` locally)."""
+"""Application settings, loaded from environment variables (and `.env` locally).
+
+Everything that affects cost — image model, size, quality, daily limits — lives here
+and is controlled by the server. The frontend can never choose these values.
+"""
 
 from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Allowlists keep a misconfigured environment from silently selecting an
+# expensive model, size or quality.
+ALLOWED_IMAGE_MODELS = frozenset(
+    {"gpt-image-1-mini", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
+)
+ALLOWED_IMAGE_QUALITIES = frozenset({"low", "medium", "high"})
+ALLOWED_IMAGE_SIZES = frozenset({"1024x1024", "1536x1024"})
 
 
 class Settings(BaseSettings):
@@ -40,6 +52,25 @@ class Settings(BaseSettings):
     # --- CORS (only needed when the frontend calls the API cross-origin) -------
     cors_allow_origins: list[str] = ["http://localhost:5173"]
 
+    # --- Artwork generation -----------------------------------------------------
+    artwork_provider: Literal["mock", "openai"] = "mock"
+    mock_artwork_delay_seconds: float = Field(default=1.5, ge=0, le=30)
+
+    openai_api_key: SecretStr | None = None
+    openai_image_model: str = "gpt-image-1-mini"
+    openai_image_quality: str = "medium"
+    openai_image_size: str = "1536x1024"
+    openai_timeout_seconds: float = Field(default=90, ge=5, le=600)
+    # Rough per-image estimate used only for logging. Check the OpenAI pricing page.
+    openai_estimated_cost_usd: float = Field(default=0.02, ge=0)
+
+    daily_generation_limit: int = Field(default=10, ge=0, le=500)
+    max_description_length: int = Field(default=400, ge=20, le=1000)
+    # Generation records are kept this long for auditing/idempotency, then TTL'd.
+    generation_record_ttl_days: int = Field(default=30, ge=1)
+    # Quota items are TTL'd for cleanup only — correctness never depends on TTL.
+    quota_record_ttl_days: int = Field(default=7, ge=1)
+
     # --- Profile PINs -------------------------------------------------------------
     # Signs unlock tokens. Required, like FAMILY_ID.
     pin_token_secret: SecretStr | None = None
@@ -49,6 +80,29 @@ class Settings(BaseSettings):
 
     # --- Request limits ---------------------------------------------------------
     max_request_body_bytes: int = Field(default=32 * 1024, ge=1024)
+
+    @field_validator("openai_image_model")
+    @classmethod
+    def _check_model(cls, value: str) -> str:
+        if value not in ALLOWED_IMAGE_MODELS:
+            raise ValueError(f"OPENAI_IMAGE_MODEL must be one of {sorted(ALLOWED_IMAGE_MODELS)}")
+        return value
+
+    @field_validator("openai_image_quality")
+    @classmethod
+    def _check_quality(cls, value: str) -> str:
+        if value not in ALLOWED_IMAGE_QUALITIES:
+            raise ValueError(
+                f"OPENAI_IMAGE_QUALITY must be one of {sorted(ALLOWED_IMAGE_QUALITIES)}"
+            )
+        return value
+
+    @field_validator("openai_image_size")
+    @classmethod
+    def _check_size(cls, value: str) -> str:
+        if value not in ALLOWED_IMAGE_SIZES:
+            raise ValueError(f"OPENAI_IMAGE_SIZE must be one of {sorted(ALLOWED_IMAGE_SIZES)}")
+        return value
 
     @property
     def family_pk(self) -> str:

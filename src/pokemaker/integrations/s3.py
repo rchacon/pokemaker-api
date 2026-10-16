@@ -33,12 +33,24 @@ class ArtworkStorage:
         self._bucket = bucket
         self._url_ttl = url_ttl
 
+    async def put(self, key: str, data: bytes, content_type: str) -> None:
+        await self._client.put_object(
+            Bucket=self._bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            CacheControl="private, max-age=31536000, immutable",  # keys are versioned
+        )
+
     async def copy(self, source_key: str, dest_key: str) -> None:
         await self._client.copy_object(
             Bucket=self._bucket,
             Key=dest_key,
             CopySource={"Bucket": self._bucket, "Key": source_key},
         )
+
+    async def delete(self, key: str) -> None:
+        await self._client.delete_object(Bucket=self._bucket, Key=key)
 
     async def delete_prefix(self, prefix: str) -> int:
         """Delete every object under `prefix` (all artwork versions of a card)."""
@@ -52,6 +64,15 @@ class ArtworkStorage:
                 )
                 deleted += len(objects)
         return deleted
+
+    async def exists(self, key: str) -> bool:
+        try:
+            await self._client.head_object(Bucket=self._bucket, Key=key)
+        except self._client.exceptions.ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        return True
 
     async def ping(self) -> None:
         await self._client.head_bucket(Bucket=self._bucket)
