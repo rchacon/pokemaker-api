@@ -69,14 +69,20 @@ Each test creates its own `test-*` table and bucket.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/api/profiles` | The family's profiles |
+| GET | `/api/profiles` | The family's profiles (`role`, `hasPin`) |
+| POST | `/api/profiles/{profileId}/unlock` | `{pin}` → short-lived unlock token (a parent's PIN works too) |
+| PUT | `/api/profiles/{profileId}/pin` | Set the first PIN (open) or change it (needs unlock) |
 | GET | `/api/profiles/{profileId}/cards` | One child's collection, by card number |
-| POST | `/api/profiles/{profileId}/cards` | Create; assigns `cardNumber` |
+| POST | `/api/profiles/{profileId}/cards` | Create; assigns `cardNumber` 🔒 |
 | GET | `/api/profiles/{profileId}/cards/{cardId}` | |
-| PUT | `/api/profiles/{profileId}/cards/{cardId}` | Body includes `version` (optimistic concurrency) |
-| DELETE | `/api/profiles/{profileId}/cards/{cardId}` | Also deletes the card's artwork |
-| POST | `/api/profiles/{profileId}/cards/{cardId}/duplicate` | Copies fields and artwork |
+| PUT | `/api/profiles/{profileId}/cards/{cardId}` | Body includes `version` (optimistic concurrency) 🔒 |
+| DELETE | `/api/profiles/{profileId}/cards/{cardId}` | Also deletes the card's artwork 🔒 |
+| POST | `/api/profiles/{profileId}/cards/{cardId}/duplicate` | Copies fields and artwork 🔒 |
 | GET | `/api/health` | Checks DynamoDB and S3 concurrently |
+
+🔒 marks routes that need `Authorization: Bearer <unlock token>` when the profile
+has a PIN: create, update, delete, duplicate, and change PIN.
+Reading is always open.
 
 Errors always look like:
 
@@ -85,7 +91,9 @@ Errors always look like:
 ```
 
 Notable codes: `VALIDATION_ERROR` 422, `PROFILE_NOT_FOUND`/`CARD_NOT_FOUND` 404,
-`VERSION_CONFLICT` 409 (carries the current card), `PAYLOAD_TOO_LARGE` 413.
+`VERSION_CONFLICT` 409 (carries the current card), `PAYLOAD_TOO_LARGE` 413,
+`PIN_REQUIRED` 401, `WRONG_PIN` 401 (with `attemptsLeft`), `PROFILE_LOCKED` 423
+(with `retryAfterSeconds`).
 
 ---
 
@@ -98,13 +106,14 @@ src/pokemaker/         The `pokemaker` package (src layout: imports never mentio
 ├── dependencies.py    build_services(): opens/closes all clients; FastAPI deps
 ├── routes/            Thin HTTP handlers
 ├── models/            Pydantic models (camelCase on the wire and in DynamoDB)
-├── services/          Business logic: profiles and cards
+├── services/          Business logic: cards and PINs
 ├── repositories/      DynamoDB access: conditional writes
 ├── integrations/      aioboto3 DynamoDB and S3 clients
 └── utils/             DynamoDB keys, clock, errors, JSON logging, body-size limit
 scripts/
 ├── init_local.py              Create local table + bucket, then seed
-└── seed_profiles.py           Seed profiles and the "Layla" sample card (local or AWS)
+├── seed_profiles.py           Seed profiles and the "Layla" sample card (local or AWS)
+└── reset_pin.py               Remove a profile's PIN (e.g. a parent forgot theirs)
 ```
 
 ---
@@ -161,6 +170,31 @@ conditional write or transaction:
 
 ---
 
+## Profile PINs
+
+PINs keep siblings out of each other's collections. Anyone can *look* at any
+collection; *changing* one needs its 4-digit PIN.
+
+- **Setting:** a profile's first PIN can be set by anyone (in the app: "Add a
+  PIN"). After that, changing it needs the profile unlocked.
+- **Parents:** profiles with `role = parent` (`seed_profiles.py --parent dad`)
+  have a master PIN that unlocks any profile, which is how a forgotten kid's PIN
+  gets reset. A parent who forgets their own PIN runs `python scripts/reset_pin.py dad`.
+- **Unlocking** (`POST …/unlock`) returns an HMAC-signed token valid for 2 hours.
+  It names the family, the profile and the profile's `pinVersion`, so changing a
+  PIN signs out every device. The app keeps tokens per browser tab and drops
+  them whenever someone switches player.
+- **Guessing:** each attempt is counted with an atomic DynamoDB `ADD` *before*
+  the PIN is checked, so even 20 simultaneous guesses get at most 5 checks.
+  After 5 wrong tries the profile locks for 5 minutes.
+- **Storage:** PINs are hashed with scrypt (salted, ~16 MB, ~50–80 ms). Hashing
+  runs in `asyncio.to_thread`, and because `hashlib.scrypt` releases the GIL,
+  checking the profile's PIN and the parents' PINs in parallel threads really
+  is parallel. That's an exception to the usual "threads don't speed up CPU
+  work in Python" rule.
+
+PINs are a household guard, not account security: see below.
+
 ## Security and MVP limitations
 
 **There is no authentication in this MVP.** Be clear-eyed about what that means:
@@ -171,6 +205,9 @@ conditional write or transaction:
   checks that a profile belongs to the configured family (data integrity), not
   *who* is asking.
 - An obscure URL is not a security mechanism.
+- Profile PINs stop a sibling from changing someone else's cards in the app,
+  but they don't hide anything (reads are open). With only 10,000 possible PINs,
+  they resist guessing only because of the attempt limit.
 
 What *is* in place: strict Pydantic validation, request-size limits, private S3
 with short-lived presigned URLs, and least-privilege IAM. Collect as little about
@@ -191,4 +228,6 @@ See `.env.example`. The most important variables:
 | `FAMILY_ID` | **required** | Server-configured tenant (e.g. `belchers`); no default, so a missing value fails at startup |
 | `TABLE_NAME` / `ARTWORK_BUCKET` | `pokemaker` / `pokemaker-artwork-local` | |
 | `DYNAMODB_ENDPOINT_URL`, `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL` | unset | Local containers only |
+| `PIN_TOKEN_SECRET` | **required** | ≥ 32 chars; signs unlock tokens |
+| `PIN_TOKEN_TTL_MINUTES` / `PIN_MAX_ATTEMPTS` / `PIN_LOCKOUT_MINUTES` | `120` / `5` / `5` | |
 | `CORS_ALLOW_ORIGINS` | `["http://localhost:5173"]` | Leave empty in AWS (same origin via CloudFront) |

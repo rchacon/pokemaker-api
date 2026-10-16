@@ -61,6 +61,7 @@ def settings(aws_endpoints: tuple[str, str]) -> Settings:
         _env_file=None,  # type: ignore[call-arg]
         app_env="test",
         family_id="belchers",
+        pin_token_secret="test-secret-that-is-at-least-32-characters-long",
         log_level="WARNING",
         table_name=f"test-{suffix}",
         artwork_bucket=f"test-artwork-{suffix}",

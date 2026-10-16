@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # --- CORS (only needed when the frontend calls the API cross-origin) -------
     cors_allow_origins: list[str] = ["http://localhost:5173"]
 
+    # --- Profile PINs -------------------------------------------------------------
+    # Signs unlock tokens. Required, like FAMILY_ID.
+    pin_token_secret: SecretStr | None = None
+    pin_token_ttl_minutes: int = Field(default=120, ge=5, le=24 * 60)
+    pin_max_attempts: int = Field(default=5, ge=1, le=20)
+    pin_lockout_minutes: int = Field(default=5, ge=1, le=24 * 60)
+
     # --- Request limits ---------------------------------------------------------
     max_request_body_bytes: int = Field(default=32 * 1024, ge=1024)
 
