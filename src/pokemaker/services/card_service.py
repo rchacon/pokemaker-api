@@ -44,7 +44,10 @@ class CardService:
 
     async def list_profiles(self) -> list[Profile]:
         items = await self._profiles.list_profiles()
-        profiles = (Profile.model_validate(i, extra="ignore") for i in items)
+        profiles = (
+            Profile.model_validate(i | {"hasPin": bool(i.get("pinHash"))}, extra="ignore")
+            for i in items
+        )
         return sorted(profiles, key=lambda p: p.profile_id)
 
     async def require_profile(self, profile_id: str) -> dict[str, Any]:

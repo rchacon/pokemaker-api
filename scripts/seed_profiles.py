@@ -2,7 +2,7 @@
 
     python scripts/seed_profiles.py
     python scripts/seed_profiles.py --name kid1="Captain Cards" --avatar kid1=dragon
-    python scripts/seed_profiles.py --name dad="Dad"
+    python scripts/seed_profiles.py --name dad="Dad" --parent dad   # parent PIN unlocks everyone
 
 Works locally (against DynamoDB Local) and in AWS (with normal AWS credentials
 and no endpoint overrides). Display names are shown on screen only; keep them to
@@ -72,7 +72,9 @@ async def seed(settings: Settings, overrides: dict[str, dict[str, str]] | None =
     # leave an item in the table that would break GET /api/profiles.
     now = iso(utc_now())
     validated = {
-        pid: Profile(profile_id=pid, created_at=now, **_snake(data)).model_dump(by_alias=True)
+        pid: Profile(profile_id=pid, created_at=now, **_snake(data)).model_dump(
+            by_alias=True, exclude={"has_pin"}
+        )
         for pid, data in profiles_data.items()
     }
 
@@ -84,6 +86,10 @@ async def seed(settings: Settings, overrides: dict[str, dict[str, str]] | None =
         async def seed_one(profile_id: str, profile: dict[str, str]) -> None:
             created = await profiles.create_profile_if_absent(profile)
             logger.info("profile %s %s", profile_id, "created" if created else "already exists")
+            role = (overrides or {}).get(profile_id, {}).get("role")
+            if not created and role:
+                await profiles.set_role(profile_id, role)
+                logger.info("profile %s is now a %s", profile_id, role)
             await seed_layla(profiles, cards, settings.family_id, profile_id)
 
         await asyncio.gather(*(seed_one(pid, profile) for pid, profile in validated.items()))
@@ -129,10 +135,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--name", action="append", default=[], help="profileId=Display Name")
     parser.add_argument("--avatar", action="append", default=[], help="profileId=avatar")
+    parser.add_argument(
+        "--parent", action="append", default=[], help="profileId whose PIN unlocks every profile"
+    )
     args = parser.parse_args()
     overrides = _pairs(args.name, "displayName")
     for pid, data in _pairs(args.avatar, "avatar").items():
         overrides.setdefault(pid, {}).update(data)
+    for pid in args.parent:
+        overrides.setdefault(pid, {})["role"] = "parent"
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     asyncio.run(seed(get_settings(), overrides))
 
