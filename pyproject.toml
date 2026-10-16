@@ -1,0 +1,51 @@
+[project]
+name = "pokemaker-api"
+version = "0.1.0"
+description = "Async FastAPI backend for PokeMaker, a family trading-card creator."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.143,<1",
+    "pydantic>=2.14,<3",
+    "pydantic-settings>=2.15,<3",
+    "aioboto3>=15.5,<16",
+    "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "uvicorn[standard]>=0.54,<1",
+    "pytest>=9.1,<10",
+    "pytest-asyncio>=1.4,<2",
+    "moto[server]>=5.2,<6",
+    "ruff>=0.17",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pokemaker"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+pythonpath = ["."]  # for `scripts.*`; the package itself is installed (pip install -e .)
+filterwarnings = [
+    "ignore::DeprecationWarning:botocore.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "."]  # so isort treats `pokemaker` and `scripts` as first-party
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM", "RUF"]
+ignore = ["B008"]  # FastAPI's Depends() in defaults is idiomatic.
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # scripts put the repo root on sys.path before importing

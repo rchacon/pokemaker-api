@@ -1,0 +1,17 @@
+# Local AWS stand-in for PokeMaker. Start with:  docker compose up -d
+# Data persists in named volumes; `docker compose down -v` wipes it.
+name: pokemaker
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:3.1.0
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    working_dir: /home/dynamodblocal
+    user: root # lets DynamoDB Local write to the named volume
+    ports:
+      - "8001:8000" # 8000 is left free for Uvicorn
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
+
+volumes:
+  dynamodb-data:
