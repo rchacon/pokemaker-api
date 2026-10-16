@@ -2,7 +2,8 @@
 
 Async Python backend for **PokeMaker**, a family trading-card creator. FastAPI +
 Pydantic v2 on top of DynamoDB, S3 and the OpenAI Images API. It runs as one
-long-lived Uvicorn process.
+long-lived Uvicorn process: locally with `--reload`, and in production as a Docker
+image (`ghcr.io/rchacon/pokemaker-api`) on an EC2 instance behind CloudFront.
 
 Sibling repositories: [`pokemaker-app`](../pokemaker-app) (React frontend) and
 [`pokemaker-infra`](../pokemaker-infra) (Terraform).
@@ -58,6 +59,14 @@ To use OpenAI (this costs money):
 # in .env
 ARTWORK_PROVIDER=openai
 OPENAI_API_KEY=sk-...
+```
+
+### Running the Docker image locally (optional)
+
+The same image that runs in production can run against the local containers:
+
+```bash
+API_PORT=8002 docker compose --profile api up --build api   # http://localhost:8002/api/health
 ```
 
 ### Tests
@@ -126,12 +135,14 @@ src/pokemaker/         The `pokemaker` package (src layout: imports never mentio
 ├── services/          Business logic: cards, quota, artwork state machine
 ├── repositories/      DynamoDB access: conditional writes and transactions
 ├── integrations/      aioboto3 DynamoDB/S3, AsyncOpenAI, mock artwork provider
-└── utils/             DynamoDB keys, clock, errors, JSON logging, body-size limit
+└── utils/             DynamoDB keys, clock, errors, JSON logging, body-size limit,
+                       edge.py: CloudFront origin check + per-IP rate limit
 scripts/
 ├── init_local.py              Create local table + bucket, then seed
 ├── seed_profiles.py           Seed profiles and the "Layla" sample card (local or AWS)
 ├── reconcile_generations.py   Settle generation requests stuck mid-flight
 └── reset_pin.py               Remove a profile's PIN (e.g. a parent forgot theirs)
+Dockerfile                     The production image (python:3.12-slim, non-root)
 ```
 
 ---
@@ -184,7 +195,9 @@ the same moment. CPU-heavy work needs processes.
 once, so every client and connection pool is created once and shared, and the
 event loop interleaves many requests that are mostly waiting on DynamoDB, S3 or
 OpenAI. While one child's artwork takes 40 s, everyone else's autosaves and gallery
-loads keep flowing on the same loop.
+loads keep flowing on the same loop. The in-app rate limiter (`utils/edge.py`)
+shows the other side of that model: its check-and-update never awaits, so no lock
+is needed even though many requests share it.
 
 **What asyncio does *not* solve here: cross-process races.** Two processes (a
 restarted container, a second server, your dev server against the same table)
@@ -265,6 +278,8 @@ example after a restart) are reconciled whenever they are read, and
 - **In the OpenAI dashboard:** use a dedicated project with a low monthly budget
   and email alerts. Budgets and alerts are *not* a guaranteed hard cap, which is
   why the server-side quota exists.
+- A per-IP rate limit (`RATE_LIMIT_PER_MINUTE`, default 600; a family shares one IP)
+  and the CloudFront origin check run in the app (`utils/edge.py`).
 
 ---
 
@@ -330,10 +345,34 @@ See `.env.example`. The most important variables:
 | `TABLE_NAME` / `ARTWORK_BUCKET` | `pokemaker` / `pokemaker-artwork-local` | |
 | `DYNAMODB_ENDPOINT_URL`, `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL` | unset | Local containers only |
 | `ARTWORK_PROVIDER` | `mock` | `mock` or `openai` |
-| `OPENAI_API_KEY` | unset | Needed when `ARTWORK_PROVIDER=openai` |
+| `OPENAI_API_KEY` | unset | Local only; the server uses `OPENAI_API_KEY_SSM_PARAMETER` |
 | `OPENAI_IMAGE_MODEL` / `_QUALITY` / `_SIZE` | `gpt-image-1-mini` / `medium` / `1536x1024` | Allowlisted |
 | `OPENAI_TIMEOUT_SECONDS` | `90` | |
 | `DAILY_GENERATION_LIMIT` | `10` | Family-wide, per UTC day |
-| `PIN_TOKEN_SECRET` | **required** | ≥ 32 chars; signs unlock tokens |
+| `PIN_TOKEN_SECRET` | **required** | ≥ 32 chars; signs unlock tokens. The server uses `PIN_TOKEN_SECRET_SSM_PARAMETER` |
 | `PIN_TOKEN_TTL_MINUTES` / `PIN_MAX_ATTEMPTS` / `PIN_LOCKOUT_MINUTES` | `120` / `5` / `5` | |
+| `ORIGIN_VERIFY_SECRET` / `_SSM_PARAMETER` | unset | When set, requests must carry CloudFront's `X-Origin-Verify` header (else 403) |
+| `RATE_LIMIT_PER_MINUTE` | `600` | Per client IP; `0` disables |
+| `TRUST_FORWARDED_FOR` | `false` | `true` behind CloudFront: rate-limit by the last `X-Forwarded-For` hop |
 | `CORS_ALLOW_ORIGINS` | `["http://localhost:5173"]` | Leave empty in AWS (same origin via CloudFront) |
+
+## Deploying
+
+Production is a Docker container on an EC2 instance behind CloudFront, provisioned
+by [`pokemaker-infra`](../pokemaker-infra).
+
+1. **Publish an image.** Images are built and published to
+   `ghcr.io/rchacon/pokemaker-api:<version>` by a tag-driven release pipeline
+   (push a `v<version>` tag matching `pyproject.toml`). That pipeline is tracked
+   in issue #3.
+2. **Deploy it.** The server has a `pokemaker-deploy <image>` command, run
+   through SSM Run Command (no SSH). It pulls the image, swaps the container,
+   health-checks `/api/health`, and rolls back to the previous image if the
+   check fails. The release pipeline (issue #3) will run it; until then, run it
+   by hand (see the pokemaker-infra README).
+
+Settings come from an SSM parameter that Terraform writes; secrets are read from
+SSM at startup with the instance's IAM role. Nothing secret is in the image.
+
+To seed profiles in AWS, run `seed_profiles.py` without the local endpoint
+variables, with AWS credentials and `TABLE_NAME` set to the deployed table.
