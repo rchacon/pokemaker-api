@@ -18,6 +18,7 @@ from fastapi import Depends, Header, Request
 
 from pokemaker.config import Settings
 from pokemaker.integrations.artwork_provider import ArtworkProvider
+from pokemaker.integrations.aws import client_kwargs, get_session
 from pokemaker.integrations.dynamodb import dynamodb_client
 from pokemaker.integrations.mock_artwork import MockArtworkProvider
 from pokemaker.integrations.openai import openai_provider
@@ -32,6 +33,10 @@ from pokemaker.services.quota_service import QuotaService
 from pokemaker.utils.clock import Clock, utc_now
 
 logger = logging.getLogger(__name__)
+
+# SSM secrets are fetched once per process start. Purely a cache: a restart
+# simply fetches them again (e.g. after rotating a secret).
+_ssm_cache: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -89,19 +94,48 @@ async def build_services(
 async def _create_provider(settings: Settings, stack: AsyncExitStack) -> ArtworkProvider:
     if settings.artwork_provider == "mock":
         return MockArtworkProvider(settings.mock_artwork_delay_seconds)
-    if not settings.openai_api_key:
-        raise RuntimeError("ARTWORK_PROVIDER=openai needs OPENAI_API_KEY")
-    api_key = settings.openai_api_key.get_secret_value()
+    api_key = await _openai_api_key(settings)
     return await stack.enter_async_context(openai_provider(settings, api_key))
 
 
+async def _openai_api_key(settings: Settings) -> str:
+    if settings.openai_api_key:
+        return settings.openai_api_key.get_secret_value()
+    name = settings.openai_api_key_ssm_parameter
+    if not name:
+        raise RuntimeError(
+            "ARTWORK_PROVIDER=openai needs OPENAI_API_KEY or OPENAI_API_KEY_SSM_PARAMETER"
+        )
+    return await _ssm_secret(settings, name)
+
+
 async def _pin_token_secret(settings: Settings) -> bytes:
-    if not settings.pin_token_secret:
-        raise RuntimeError("Set PIN_TOKEN_SECRET")
-    value = settings.pin_token_secret.get_secret_value()
+    if settings.pin_token_secret:
+        value = settings.pin_token_secret.get_secret_value()
+    elif settings.pin_token_secret_ssm_parameter:
+        value = await _ssm_secret(settings, settings.pin_token_secret_ssm_parameter)
+    else:
+        raise RuntimeError("Set PIN_TOKEN_SECRET (or PIN_TOKEN_SECRET_SSM_PARAMETER)")
     if len(value) < 32:
         raise RuntimeError("PIN_TOKEN_SECRET must be at least 32 characters")
     return value.encode()
+
+
+async def resolve_origin_secret(settings: Settings) -> bytes | None:
+    """The CloudFront origin secret, or None when not configured (local dev)."""
+    if settings.origin_verify_secret:
+        return settings.origin_verify_secret.get_secret_value().encode()
+    if settings.origin_verify_secret_ssm_parameter:
+        return (await _ssm_secret(settings, settings.origin_verify_secret_ssm_parameter)).encode()
+    return None
+
+
+async def _ssm_secret(settings: Settings, name: str) -> str:
+    if name not in _ssm_cache:
+        async with get_session().client("ssm", **client_kwargs(settings, None)) as ssm:
+            response = await ssm.get_parameter(Name=name, WithDecryption=True)
+        _ssm_cache[name] = response["Parameter"]["Value"]
+    return _ssm_cache[name]
 
 
 def get_services(request: Request) -> Services:

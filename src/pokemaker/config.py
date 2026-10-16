@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     local_aws_secret_access_key: SecretStr = SecretStr("pokemaker-secret")
     presigned_url_ttl_seconds: int = Field(default=900, ge=60, le=3600)
 
+    # --- Edge protection (the server sits behind CloudFront) --------------------
+    # CloudFront adds this secret header to every request it forwards; the API
+    # rejects requests without it. Unset locally. On the server it comes from SSM.
+    origin_verify_secret: SecretStr | None = None
+    origin_verify_secret_ssm_parameter: str | None = None
+    # Requests per minute per client IP (0 disables). A family shares one IP.
+    rate_limit_per_minute: int = Field(default=600, ge=0)
+    # Only enable behind a proxy that appends the real client IP (CloudFront).
+    trust_forwarded_for: bool = False
+
     # --- CORS (only needed when the frontend calls the API cross-origin) -------
     cors_allow_origins: list[str] = ["http://localhost:5173"]
 
@@ -57,6 +67,9 @@ class Settings(BaseSettings):
     mock_artwork_delay_seconds: float = Field(default=1.5, ge=0, le=30)
 
     openai_api_key: SecretStr | None = None
+    # On the server the key is read from SSM Parameter Store (SecureString) at startup
+    # instead of living in an environment variable or in Terraform state.
+    openai_api_key_ssm_parameter: str | None = None
     openai_image_model: str = "gpt-image-1-mini"
     openai_image_quality: str = "medium"
     openai_image_size: str = "1536x1024"
@@ -72,8 +85,9 @@ class Settings(BaseSettings):
     quota_record_ttl_days: int = Field(default=7, ge=1)
 
     # --- Profile PINs -------------------------------------------------------------
-    # Signs unlock tokens. Required, like FAMILY_ID.
+    # Signs unlock tokens. Locally it comes from .env; on the server from SSM.
     pin_token_secret: SecretStr | None = None
+    pin_token_secret_ssm_parameter: str | None = None
     pin_token_ttl_minutes: int = Field(default=120, ge=5, le=24 * 60)
     pin_max_attempts: int = Field(default=5, ge=1, le=20)
     pin_lockout_minutes: int = Field(default=5, ge=1, le=24 * 60)

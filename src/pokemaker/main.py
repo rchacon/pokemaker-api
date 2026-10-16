@@ -1,6 +1,9 @@
 """FastAPI application entry point.
 
-    uvicorn pokemaker.main:app --reload
+Locally:     uvicorn pokemaker.main:app --reload
+On the server (Docker on EC2, behind CloudFront), the image runs:
+             uvicorn pokemaker.main:app --host 0.0.0.0 --port 8443 \
+                 --ssl-certfile ... --ssl-keyfile ...
 
 The app runs as one long-lived process, so the lifespan below runs once at
 startup: every client (DynamoDB, S3, OpenAI) is created once and its
@@ -23,8 +26,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from pokemaker.config import Settings, get_settings
-from pokemaker.dependencies import Services, ServicesDep, build_services
+from pokemaker.dependencies import Services, ServicesDep, build_services, resolve_origin_secret
 from pokemaker.routes import artwork, cards, profiles
+from pokemaker.utils.edge import OriginSecret, OriginVerifyMiddleware, RateLimitMiddleware
 from pokemaker.utils.errors import PokeMakerError
 from pokemaker.utils.logging import configure_logging
 from pokemaker.utils.middleware import BodySizeLimitMiddleware
@@ -40,9 +44,12 @@ def create_app(
     settings = settings or get_settings()
     configure_logging(settings.log_level)
 
+    origin_secret = OriginSecret()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Runs once per process: before the first request and after the last.
+        origin_secret.value = await resolve_origin_secret(settings)
         async with services_factory(settings) as services:
             app.state.services = services
             yield
@@ -57,7 +64,7 @@ def create_app(
     )
     app.state.settings = settings
     # Starlette runs the middleware added *last* first, so requests pass through
-    # body-size limit → CORS → routes.
+    # origin check → rate limit → body-size limit → CORS → routes.
     if settings.cors_allow_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -66,6 +73,12 @@ def create_app(
             allow_headers=["Content-Type", "Idempotency-Key", "Authorization"],
         )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+    app.add_middleware(
+        RateLimitMiddleware,
+        per_minute=settings.rate_limit_per_minute,
+        trust_forwarded_for=settings.trust_forwarded_for,
+    )
+    app.add_middleware(OriginVerifyMiddleware, secret=origin_secret)
 
     @app.exception_handler(PokeMakerError)
     async def domain_error(_: Request, exc: PokeMakerError) -> JSONResponse:

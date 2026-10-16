@@ -14,6 +14,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The ASGI server: used locally and in the Docker image.
+server = ["uvicorn[standard]>=0.54,<1"]
 dev = [
     "uvicorn[standard]>=0.54,<1",
     "pytest>=9.1,<10",
