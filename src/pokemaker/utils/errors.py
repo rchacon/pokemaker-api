@@ -19,3 +19,23 @@ class PokeMakerError(Exception):
         super().__init__(message)
         self.message = message
         self.details = details or {}
+
+
+class NotFoundError(PokeMakerError):
+    status_code = 404
+    code = "NOT_FOUND"
+
+
+class ProfileNotFoundError(NotFoundError):
+    code = "PROFILE_NOT_FOUND"
+
+
+class CardNotFoundError(NotFoundError):
+    code = "CARD_NOT_FOUND"
+
+
+class VersionConflictError(PokeMakerError):
+    """The client edited an out-of-date copy of a card (optimistic concurrency)."""
+
+    status_code = 409
+    code = "VERSION_CONFLICT"

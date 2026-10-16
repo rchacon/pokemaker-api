@@ -7,7 +7,7 @@ import httpx
 from pokemaker.config import Settings
 from pokemaker.dependencies import build_services
 from pokemaker.main import create_app
-from scripts.init_local import create_table
+from scripts.init_local import create_bucket, create_table
 
 
 async def test_build_services_closes_aws_clients(settings: Settings, services):
@@ -23,7 +23,7 @@ async def test_build_services_closes_aws_clients(settings: Settings, services):
 async def test_lifespan_opens_resources_once_for_many_requests(settings: Settings):
     # A long-running server builds its clients once and shares them across
     # requests (unlike Lambda, where every invocation started from scratch).
-    await create_table(settings)
+    await asyncio.gather(create_table(settings), create_bucket(settings))
     opened = 0
 
     def factory(s: Settings):
