@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# PokeMaker API image. Published by CI to ghcr.io/rchacon/pokemaker-api (arm64)
-# and run on EC2 behind CloudFront; `docker compose --profile api up` runs the
-# same image locally.
+# PokeMaker API image. Published to ghcr.io/rchacon/pokemaker-api (arm64) and
+# run on EC2 behind CloudFront; `docker compose --profile api up` runs the same
+# image locally.
 #
 # Nothing secret is baked in: settings come from the environment, and secrets
 # (OpenAI key, PIN token secret, CloudFront origin secret) are read from SSM

@@ -142,7 +142,7 @@ scripts/
 ├── seed_profiles.py           Seed profiles and the "Layla" sample card (local or AWS)
 ├── reconcile_generations.py   Settle generation requests stuck mid-flight
 ├── reset_pin.py               Remove a profile's PIN (e.g. a parent forgot theirs)
-└── deploy.sh                  Deploy a published image to the EC2 server (via SSM)
+└── deploy.sh                  Deploy a published image (version) to the EC2 server (via SSM)
 Dockerfile                     The production image (python:3.12-slim, non-root)
 ```
 
@@ -362,14 +362,15 @@ See `.env.example`. The most important variables:
 Production is a Docker container on an EC2 instance behind CloudFront, provisioned
 by [`pokemaker-infra`](../pokemaker-infra).
 
-1. **Publish an image.** CI builds an arm64 image on every pull request. On pushes
-   to `main` (or a manual run of the CI workflow) it publishes
-   `ghcr.io/rchacon/pokemaker-api:sha-<commit>` and `:main`.
+1. **Publish an image.** Images are built and published to
+   `ghcr.io/rchacon/pokemaker-api:<version>` by a tag-driven release pipeline
+   (push a `v<version>` tag matching `pyproject.toml`). That pipeline is tracked
+   in issue #3.
 2. **Deploy it:**
 
    ```bash
-   ./scripts/deploy.sh            # the image for the current commit
-   ./scripts/deploy.sh main       # or any published tag
+   ./scripts/deploy.sh            # the version in pyproject.toml
+   ./scripts/deploy.sh 0.1.0      # or any published tag
    ```
 
    This runs `pokemaker-deploy` on the instance through SSM Run Command (no SSH).

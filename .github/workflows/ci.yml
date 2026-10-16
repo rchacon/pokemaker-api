@@ -4,8 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  # Publish an image from any branch on demand (Actions tab → CI → Run workflow).
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,46 +37,3 @@ jobs:
       # AWS is emulated in-process by moto: no Docker services or credentials needed.
       - name: Test
         run: pytest
-
-  image:
-    name: Build${{ github.event_name != 'pull_request' && ' and publish' || '' }} arm64 image
-    # Native arm64 runner (free for public repos): no QEMU emulation, and the
-    # image matches the t4g (Graviton) EC2 instance it runs on.
-    runs-on: ubuntu-24.04-arm
-    needs: test
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write # push to ghcr.io with the workflow's own token; no other credentials
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha,prefix=sha-,format=short
-            type=ref,event=branch
-
-      # Pull requests only check that the image builds; pushes to main (or a
-      # manual run) publish ghcr.io/rchacon/pokemaker-api:sha-<commit> and :<branch>.
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

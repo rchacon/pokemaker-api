@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Deploy a published image to the EC2 server.
 #
-#   ./scripts/deploy.sh              # the image CI built for the current commit (sha-<short>)
-#   ./scripts/deploy.sh main         # or any tag on ghcr.io/rchacon/pokemaker-api
+#   ./scripts/deploy.sh              # the version in pyproject.toml (e.g. 0.1.0)
+#   ./scripts/deploy.sh 0.2.0        # or any tag on ghcr.io/rchacon/pokemaker-api
 #   INFRA_DIR=../pokemaker-infra/envs/dev ./scripts/deploy.sh
 #
-# CI publishes images (see .github/workflows/ci.yml); this script only tells the
-# server to switch to one. It uses SSM Run Command, so no SSH, open port or key
+# Publishing images is separate (a tag-driven release pipeline; see the README);
+# this script only tells the server to switch to one. It uses SSM Run Command, so no SSH, open port or key
 # is needed: just AWS credentials allowed to run commands on the instance.
 # On the server, `pokemaker-deploy` (installed by pokemaker-infra) pulls the
 # image, swaps the container, health-checks it and rolls back on failure.
@@ -14,11 +14,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 INFRA_DIR="${INFRA_DIR:-../pokemaker-infra/envs/prod}"
-TAG="${1:-sha-$(git rev-parse --short=7 HEAD)}"
+TAG="${1:-$(sed -n 's/^version = "\([^"]*\)".*/\1/p' pyproject.toml)}"
 IMAGE="ghcr.io/rchacon/pokemaker-api:$TAG"
 
 if ! docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "No image $IMAGE on GHCR. Has CI published it? (push to main, or run the CI workflow manually)" >&2
+  echo "No image $IMAGE on GHCR. Has that version been published? (see README: Deploying)" >&2
   exit 1
 fi
 
