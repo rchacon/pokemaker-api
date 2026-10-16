@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from pokemaker.models.artwork import GenerationStatus
 from pokemaker.models.card import Attack, CardCreate, CardUpdate, card_status
 
 
@@ -55,3 +56,9 @@ def test_update_requires_version():
 def test_status_complete_needs_name_and_named_attack():
     assert card_status(CardCreate(name="A", attacks=[Attack(name="")])) == "draft"
     assert card_status(CardCreate(name="A", attacks=[Attack(name="Hit")])) == "complete"
+
+
+def test_terminal_states():
+    assert GenerationStatus.SUCCEEDED.is_terminal
+    assert GenerationStatus.FAILED.is_terminal
+    assert not GenerationStatus.CALLING_PROVIDER.is_terminal

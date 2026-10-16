@@ -28,6 +28,13 @@ os.environ.setdefault("FAMILY_ID", "belchers")
 
 from pokemaker.config import Settings
 from pokemaker.dependencies import Services, build_services
+from pokemaker.integrations.artwork_provider import (
+    GeneratedImage,
+    ProviderAmbiguousError,
+    ProviderFailedError,
+    ProviderRejectedError,
+)
+from pokemaker.integrations.mock_artwork import render_placeholder
 from pokemaker.main import create_app
 from scripts.init_local import create_bucket, create_table
 from scripts.seed_profiles import seed
@@ -68,6 +75,8 @@ def settings(aws_endpoints: tuple[str, str]) -> Settings:
         dynamodb_endpoint_url=aws_endpoints[0],
         s3_endpoint_url=aws_endpoints[1],
         s3_public_endpoint_url=aws_endpoints[1],
+        daily_generation_limit=10,
+        openai_timeout_seconds=5,
         cors_allow_origins=[],
     )
 
@@ -85,16 +94,53 @@ class FakeClock:
         self.now += timedelta(**kwargs)
 
 
+class FakeProvider:
+    """An artwork provider whose behavior each test can script."""
+
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.prompts: list[str] = []
+        self.mode = "ok"  # ok | rejected | failed | ambiguous | hang
+        self.delay = 0.0
+        self.started = asyncio.Event()
+
+    async def generate(self, prompt: str, *, seed_text: str = "") -> GeneratedImage:
+        self.calls += 1
+        self.prompts.append(prompt)
+        self.started.set()
+        if self.mode == "hang":
+            await asyncio.sleep(3600)
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.mode == "rejected":
+            raise ProviderRejectedError("safety system")
+        if self.mode == "failed":
+            raise ProviderFailedError("500: server error")
+        if self.mode == "ambiguous":
+            raise ProviderAmbiguousError("connection reset")
+        data = render_placeholder(seed_text or prompt)
+        return GeneratedImage(data=data, content_type="image/png", extension="png", model="fake")
+
+
 @pytest.fixture
 def clock() -> FakeClock:
     return FakeClock()
 
 
 @pytest.fixture
-async def services(settings: Settings, clock: FakeClock) -> AsyncIterator[Services]:
+def provider() -> FakeProvider:
+    return FakeProvider()
+
+
+@pytest.fixture
+async def services(
+    settings: Settings, clock: FakeClock, provider: FakeProvider
+) -> AsyncIterator[Services]:
     await asyncio.gather(create_table(settings), create_bucket(settings))
     await seed(settings)
-    async with build_services(settings, clock=clock) as svc:
+    async with build_services(settings, clock=clock, provider=provider) as svc:
         yield svc
 
 

@@ -1,7 +1,8 @@
 # pokemaker-api
 
 Async Python backend for **PokeMaker**, a family trading-card creator. FastAPI +
-Pydantic v2 on top of DynamoDB and S3. It runs as one long-lived Uvicorn process.
+Pydantic v2 on top of DynamoDB, S3 and the OpenAI Images API. It runs as one
+long-lived Uvicorn process.
 
 Sibling repositories: [`pokemaker-app`](../pokemaker-app) (React frontend) and
 [`pokemaker-infra`](../pokemaker-infra) (Terraform).
@@ -18,7 +19,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# 2. Configuration (defaults point at the local containers)
+# 2. Configuration (defaults point at the local containers; mock artwork)
 cp .env.example .env
 
 # 3. Local AWS stand-ins: DynamoDB Local on :8001, MinIO on :9000 (console :9001)
@@ -48,6 +49,17 @@ lowercase letters, digits and hyphens; the avatar defaults to `star`).
 Existing profiles are never overwritten, so to rename one after it was created,
 `docker compose down -v` (wipes all local data) and re-run `init_local.py`.
 
+### Real AI artwork locally
+
+The default `ARTWORK_PROVIDER=mock` draws a free, deterministic placeholder creature.
+To use OpenAI (this costs money):
+
+```bash
+# in .env
+ARTWORK_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
 ### Tests
 
 ```bash
@@ -61,7 +73,8 @@ To run the same suite against DynamoDB Local and MinIO instead of moto:
 TEST_AWS_ENDPOINT_URL=http://localhost:8001 TEST_S3_ENDPOINT_URL=http://localhost:9000 pytest
 ```
 
-Each test creates its own `test-*` table and bucket.
+Each test creates its own `test-*` table and bucket. OpenAI is never called: the
+OpenAI integration is tested against a fake HTTP transport.
 
 ---
 
@@ -77,11 +90,14 @@ Each test creates its own `test-*` table and bucket.
 | GET | `/api/profiles/{profileId}/cards/{cardId}` | |
 | PUT | `/api/profiles/{profileId}/cards/{cardId}` | Body includes `version` (optimistic concurrency) 🔒 |
 | DELETE | `/api/profiles/{profileId}/cards/{cardId}` | Also deletes the card's artwork 🔒 |
-| POST | `/api/profiles/{profileId}/cards/{cardId}/duplicate` | Copies fields and artwork 🔒 |
+| POST | `/api/profiles/{profileId}/cards/{cardId}/duplicate` | Copies fields and artwork; no quota 🔒 |
+| POST | `/api/profiles/{profileId}/cards/{cardId}/artwork` | Requires `Idempotency-Key` header (UUID) 🔒 |
+| GET | `/api/artwork/requests/{requestId}` | Status of a generation (for polling) |
+| GET | `/api/artwork/quota` | `{date, used, limit, remaining, resetsAt}` |
 | GET | `/api/health` | Checks DynamoDB and S3 concurrently |
 
 🔒 marks routes that need `Authorization: Bearer <unlock token>` when the profile
-has a PIN: create, update, delete, duplicate, and change PIN.
+has a PIN: create, update, delete, duplicate, generate artwork, and change PIN.
 Reading is always open.
 
 Errors always look like:
@@ -91,9 +107,10 @@ Errors always look like:
 ```
 
 Notable codes: `VALIDATION_ERROR` 422, `PROFILE_NOT_FOUND`/`CARD_NOT_FOUND` 404,
-`VERSION_CONFLICT` 409 (carries the current card), `PAYLOAD_TOO_LARGE` 413,
-`PIN_REQUIRED` 401, `WRONG_PIN` 401 (with `attemptsLeft`), `PROFILE_LOCKED` 423
-(with `retryAfterSeconds`).
+`VERSION_CONFLICT` 409 (carries the current card), `IDEMPOTENCY_KEY_REUSED` 409,
+`QUOTA_EXCEEDED` 429, `ARTWORK_REJECTED` 422, `ARTWORK_PROVIDER_ERROR` 502,
+`ARTWORK_TIMEOUT` 504, `PAYLOAD_TOO_LARGE` 413, `PIN_REQUIRED` 401, `WRONG_PIN` 401
+(with `attemptsLeft`), `PROFILE_LOCKED` 423 (with `retryAfterSeconds`).
 
 ---
 
@@ -102,17 +119,18 @@ Notable codes: `VALIDATION_ERROR` 422, `PROFILE_NOT_FOUND`/`CARD_NOT_FOUND` 404,
 ```text
 src/pokemaker/         The `pokemaker` package (src layout: imports never mention `src`)
 ├── main.py            FastAPI app, lifespan, error handlers, middleware order
-├── config.py          Settings from env
+├── config.py          Settings from env (model/size/quality allowlists)
 ├── dependencies.py    build_services(): opens/closes all clients; FastAPI deps
 ├── routes/            Thin HTTP handlers
 ├── models/            Pydantic models (camelCase on the wire and in DynamoDB)
-├── services/          Business logic: cards and PINs
-├── repositories/      DynamoDB access: conditional writes
-├── integrations/      aioboto3 DynamoDB and S3 clients
+├── services/          Business logic: cards, quota, artwork state machine
+├── repositories/      DynamoDB access: conditional writes and transactions
+├── integrations/      aioboto3 DynamoDB/S3, AsyncOpenAI, mock artwork provider
 └── utils/             DynamoDB keys, clock, errors, JSON logging, body-size limit
 scripts/
 ├── init_local.py              Create local table + bucket, then seed
 ├── seed_profiles.py           Seed profiles and the "Layla" sample card (local or AWS)
+├── reconcile_generations.py   Settle generation requests stuck mid-flight
 └── reset_pin.py               Remove a profile's PIN (e.g. a parent forgot theirs)
 ```
 
@@ -124,13 +142,18 @@ scripts/
 | --- | --- | --- |
 | Profile | `FAMILY#belchers` | `PROFILE#kid1` |
 | Card | `FAMILY#belchers#PROFILE#kid1` | `CARD#<uuid>` |
+| Daily quota | `FAMILY#belchers` | `QUOTA#ARTWORK#2026-10-13` |
+| Generation request | `FAMILY#belchers` | `GENERATION#<requestId>` |
 
 - **Cards** carry `version` (an edit counter for optimistic concurrency), `cardNumber`
   (from an atomic per-profile counter, `cardCounter`, on the profile item),
   `artworkKey`/`artworkVersion`, and an `artworkSeq` counter that allocates S3 versions.
 - **Artwork** lives in a private bucket at
-  `families/belchers/profiles/kid1/cards/<cardId>/artwork/v<n>.<ext>`. The API returns
-  short-lived presigned URLs (`artworkUrl`). Image bytes are never stored in DynamoDB.
+  `families/belchers/profiles/kid1/cards/<cardId>/artwork/v<n>.<ext>` (`.webp` from
+  OpenAI, `.png` from the mock). The API returns short-lived presigned URLs
+  (`artworkUrl`). Image bytes are never stored in DynamoDB.
+- **Quota and generation items** have an `expiresAt` TTL attribute, used for cleanup
+  only. The quota resets because each UTC day has its own item, not because of TTL.
 - **Future Cognito:** the family id is ours and is never a Cognito `sub`. Users will
   map to families with membership items (`PK = USER#<sub>, SK = FAMILY#belchers`,
   `role = OWNER`), so no card keys need migrating.
@@ -144,9 +167,13 @@ This codebase is also a place to practise `asyncio`. The patterns used, and why:
 | Where | Pattern | Why |
 | --- | --- | --- |
 | All DynamoDB/S3 calls | `aioboto3`/`aiobotocore` | I/O-bound: while waiting on the network, the event loop serves other requests |
+| `integrations/openai.py` | `AsyncOpenAI` on an `httpx2.AsyncClient` | A 10–60 s wait that must not block the loop. openai-python 3.x uses `httpx2`, the successor to `httpx`; tests use `httpx.AsyncClient` + `ASGITransport` |
 | `CardService.list_cards` | `asyncio.TaskGroup` | The profile check and the card query are independent, so latency is max(a, b) rather than a + b. TaskGroup cancels the sibling if one fails |
 | `/api/health`, `init_local.py`, seeding | `asyncio.gather` | Independent checks and setup steps |
 | `CardService.delete_card` | Sequential, on purpose | Delete the card (the source of truth) before its artwork. Running them concurrently could orphan a card or lose artwork |
+| `ArtworkService._run` | `asyncio.timeout()` | Bounds the whole provider call, independent of HTTP-client timeouts |
+| `ArtworkService._run` | `except CancelledError: await asyncio.shield(...); raise` | Records what happened without a second cancellation interrupting the bookkeeping, then re-raises. Never swallow `CancelledError` |
+| Mock provider rendering | `asyncio.to_thread` | Keeps CPU work off the loop. This is concurrency, not parallelism: the GIL still runs one thread's Python at a time |
 | `dependencies.build_services` | `AsyncExitStack` + lifespan | Every client is closed in reverse order, even if startup fails halfway |
 
 **Concurrency vs. parallelism.** `asyncio` interleaves many waiting tasks on one
@@ -155,18 +182,89 @@ the same moment. CPU-heavy work needs processes.
 
 **Where it pays off.** Production runs a single Uvicorn process. Its lifespan runs
 once, so every client and connection pool is created once and shared, and the
-event loop interleaves many requests that are mostly waiting on DynamoDB or S3:
-one child's autosaves and another's gallery loads flow on the same loop.
+event loop interleaves many requests that are mostly waiting on DynamoDB, S3 or
+OpenAI. While one child's artwork takes 40 s, everyone else's autosaves and gallery
+loads keep flowing on the same loop.
 
 **What asyncio does *not* solve here: cross-process races.** Two processes (a
 restarted container, a second server, your dev server against the same table)
-share no memory, so an `asyncio.Lock` or an in-memory counter can't prevent lost
-updates or duplicate card numbers. Every correctness rule lives in a DynamoDB
+share no memory, so an `asyncio.Lock` or an in-memory counter can't enforce a
+quota or prevent lost updates. Every correctness rule lives in a DynamoDB
 conditional write or transaction:
 
 - Card edits: `ConditionExpression: version = :expected`. The loser gets `409` with
   the current card.
-- Card numbers: an atomic `ADD` counter.
+- Card numbers and artwork versions: atomic `ADD` counters.
+- Quota: one transaction that inserts the generation record (`attribute_not_exists`)
+  **and** increments the day's count (`generationCount < :limit`).
+- Generation state changes: compare-and-swap on `status`.
+- Attaching artwork: `artworkVersion < :new`, so a slow, older generation can't
+  overwrite a newer one. Artwork attachment doesn't bump the card's edit `version`,
+  so a generation that finishes mid-edit never causes an autosave conflict.
+
+**Background work.** On a long-lived server, a generation could outlive its HTTP
+request as a server-owned asyncio task that streams partial images (issue #2).
+The rule that keeps that safe: the task may *hold* work in memory, but every
+outcome is recorded in DynamoDB, so a restart mid-task is settled by the
+reconcile logic. Work that must survive restarts or be retried belongs in a
+queue (SQS) instead.
+
+---
+
+## Artwork generation: state machine and failure policy
+
+```text
+           reserve (transaction: record + quota slot)
+                         │
+                         ▼
+   PENDING ──────► CALLING_PROVIDER ──────► STORING ──────► SUCCEEDED
+      │                  │                     │
+      ▼                  ▼                     ▼
+   FAILED             FAILED                FAILED
+  (slot RELEASED)  (RELEASED or CONSUMED)  (CONSUMED)
+```
+
+The OpenAI call and DynamoDB cannot be made atomic together, so every step is
+recorded and each failure decides explicitly what happens to the quota slot:
+
+| What happened | Status / slot | Retry? |
+| --- | --- | --- |
+| Invalid input, unknown card, empty description | Nothing reserved | – |
+| Quota exhausted | `429`, nothing reserved | Tomorrow (UTC) |
+| Same `Idempotency-Key` again | Original result returned (`202` if still running) | Never re-run |
+| OpenAI refused the prompt (400) | FAILED / **RELEASED** | Child can rephrase |
+| OpenAI error response (401/429/5xx) | FAILED / **RELEASED** | Child can press again |
+| Timeout, dropped connection, cancellation | FAILED / **CONSUMED** (may have been billed) | **No automatic retry** |
+| S3 upload failed (3 attempts; idempotent PUT) | FAILED / CONSUMED | – |
+| Card deleted mid-generation | FAILED / CONSUMED; orphaned object deleted | – |
+| Process died mid-flight | Reconciled once older than 5 min: PENDING → RELEASED, later states → CONSUMED | – |
+
+The OpenAI SDK runs with `max_retries=0`, because an SDK retry after a timeout
+could pay twice.
+
+**Proxy timeouts.** CloudFront waits up to 60 s for the server to respond. If a
+generation takes longer, the dropped connection doesn't cancel the handler: it
+finishes and records the result, and the frontend polls
+`GET /api/artwork/requests/{requestId}` with the same id. Stale records (for
+example after a restart) are reconciled whenever they are read, and
+`scripts/reconcile_generations.py` sweeps all of them.
+
+---
+
+## Cost controls
+
+- Server-side daily quota (`DAILY_GENERATION_LIMIT`, default 10 per family per UTC
+  day), enforced atomically in DynamoDB however many processes run.
+- Model, size and quality are fixed server-side and validated against allowlists
+  (`gpt-image-1-mini`, medium quality, 1536×1024, `n=1`). The client can't change them.
+- Descriptions are capped at 400 characters, request bodies at 32 KB, and image
+  prompts are built server-side.
+- Every generation is logged as JSON with token usage and
+  `OPENAI_ESTIMATED_COST_USD`. This is an estimate: check
+  https://openai.com/api/pricing.
+- **In the OpenAI dashboard:** use a dedicated project with a low monthly budget
+  and email alerts. Budgets and alerts are *not* a guaranteed hard cap, which is
+  why the server-side quota exists.
 
 ---
 
@@ -199,19 +297,22 @@ PINs are a household guard, not account security: see below.
 
 **There is no authentication in this MVP.** Be clear-eyed about what that means:
 
-- Anyone who learns the API's address can call it: list profiles, and read, edit
-  or delete any card.
+- Anyone who learns the API's address can call it: list profiles, read, edit or
+  delete any card, and use up the day's artwork quota.
 - **Choosing a profile in the app is a convenience, not authorization.** The API
   checks that a profile belongs to the configured family (data integrity), not
   *who* is asking.
 - An obscure URL is not a security mechanism.
+- Quotas and throttling limit cost and abuse; they provide no privacy.
 - Profile PINs stop a sibling from changing someone else's cards in the app,
   but they don't hide anything (reads are open). With only 10,000 possible PINs,
   they resist guessing only because of the attempt limit.
 
-What *is* in place: strict Pydantic validation, request-size limits, private S3
-with short-lived presigned URLs, and least-privilege IAM. Collect as little about
-the children as possible: use nicknames, never real names, schools or photos.
+What *is* in place: strict Pydantic validation, server-side quotas, request-size
+limits, private S3 with short-lived presigned URLs, least-privilege IAM, and the
+OpenAI key kept in SSM Parameter Store (never in the frontend, Terraform state or
+git). Collect as little about the children as possible: use nicknames, never real
+names, schools or photos.
 
 Before inviting other families, add Cognito, map users to families with membership
 items, and authorize every request against the caller's family. The key design
@@ -228,6 +329,11 @@ See `.env.example`. The most important variables:
 | `FAMILY_ID` | **required** | Server-configured tenant (e.g. `belchers`); no default, so a missing value fails at startup |
 | `TABLE_NAME` / `ARTWORK_BUCKET` | `pokemaker` / `pokemaker-artwork-local` | |
 | `DYNAMODB_ENDPOINT_URL`, `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL` | unset | Local containers only |
+| `ARTWORK_PROVIDER` | `mock` | `mock` or `openai` |
+| `OPENAI_API_KEY` | unset | Needed when `ARTWORK_PROVIDER=openai` |
+| `OPENAI_IMAGE_MODEL` / `_QUALITY` / `_SIZE` | `gpt-image-1-mini` / `medium` / `1536x1024` | Allowlisted |
+| `OPENAI_TIMEOUT_SECONDS` | `90` | |
+| `DAILY_GENERATION_LIMIT` | `10` | Family-wide, per UTC day |
 | `PIN_TOKEN_SECRET` | **required** | ≥ 32 chars; signs unlock tokens |
 | `PIN_TOKEN_TTL_MINUTES` / `PIN_MAX_ATTEMPTS` / `PIN_LOCKOUT_MINUTES` | `120` / `5` / `5` | |
 | `CORS_ALLOW_ORIGINS` | `["http://localhost:5173"]` | Leave empty in AWS (same origin via CloudFront) |

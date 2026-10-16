@@ -1,11 +1,14 @@
-"""Resource cleanup and the app lifespan."""
+"""Resource cleanup, the mock provider, and the app lifespan."""
 
 import asyncio
+import time
 
 import httpx
+import pytest
 
 from pokemaker.config import Settings
 from pokemaker.dependencies import build_services
+from pokemaker.integrations.mock_artwork import MockArtworkProvider, render_placeholder
 from pokemaker.main import create_app
 from scripts.init_local import create_bucket, create_table
 
@@ -18,6 +21,41 @@ async def test_build_services_closes_aws_clients(settings: Settings, services):
         assert pools and not any(pool.closed for pool in pools)
     # Leaving the context closed the connection pool.
     assert all(pool.closed for pool in pools)
+
+
+async def test_mock_provider_is_deterministic_and_free():
+    provider = MockArtworkProvider(delay_seconds=0)
+    first = await provider.generate("prompt, theme: fire — x", seed_text="a fox")
+    second = await provider.generate("prompt, theme: fire — x", seed_text="a fox")
+    other = await provider.generate("prompt, theme: fire — x", seed_text="a frog")
+    assert first.data == second.data != other.data
+    assert first.data.startswith(b"\x89PNG")
+    assert first.model == "mock"
+
+
+async def test_mock_provider_honours_timeouts():
+    provider = MockArtworkProvider(delay_seconds=10)
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.1):
+            await provider.generate("x")
+    assert time.monotonic() - started < 1
+
+
+async def test_rendering_runs_off_the_event_loop():
+    # While a thread renders the placeholder, the loop keeps running other tasks.
+    ticks = 0
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0.001)
+
+    task = asyncio.create_task(ticker())
+    await asyncio.to_thread(render_placeholder, "busy")
+    task.cancel()
+    assert ticks > 5
 
 
 async def test_lifespan_opens_resources_once_for_many_requests(settings: Settings):

@@ -1,7 +1,7 @@
 """Shared resources and FastAPI dependencies.
 
-`build_services()` opens every long-lived resource (the DynamoDB and S3
-clients) inside one AsyncExitStack, so they are all
+`build_services()` opens every long-lived resource (DynamoDB and S3 clients,
+the OpenAI HTTP connection pool) inside one AsyncExitStack, so they are all
 closed in reverse order on shutdown, even if startup fails halfway through.
 The FastAPI lifespan in `pokemaker.main` enters it once; tests enter it directly.
 """
@@ -17,12 +17,18 @@ from typing import Annotated
 from fastapi import Depends, Header, Request
 
 from pokemaker.config import Settings
+from pokemaker.integrations.artwork_provider import ArtworkProvider
 from pokemaker.integrations.dynamodb import dynamodb_client
+from pokemaker.integrations.mock_artwork import MockArtworkProvider
+from pokemaker.integrations.openai import openai_provider
 from pokemaker.integrations.s3 import ArtworkStorage, artwork_storage
 from pokemaker.repositories.card_repository import CardRepository
 from pokemaker.repositories.profile_repository import ProfileRepository
+from pokemaker.repositories.quota_repository import QuotaRepository
+from pokemaker.services.artwork_service import ArtworkService
 from pokemaker.services.card_service import CardService
 from pokemaker.services.pin_service import PinService
+from pokemaker.services.quota_service import QuotaService
 from pokemaker.utils.clock import Clock, utc_now
 
 logger = logging.getLogger(__name__)
@@ -31,7 +37,9 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Services:
     cards: CardService
+    artwork: ArtworkService
     pins: PinService
+    quota: QuotaService
     storage: ArtworkStorage
     profiles: ProfileRepository
     dynamodb: object
@@ -42,23 +50,49 @@ async def build_services(
     settings: Settings,
     *,
     clock: Clock = utc_now,
+    provider: ArtworkProvider | None = None,
 ) -> AsyncIterator[Services]:
     async with AsyncExitStack() as stack:
         ddb = await stack.enter_async_context(dynamodb_client(settings))
         storage = await stack.enter_async_context(artwork_storage(settings))
+        if provider is None:
+            provider = await _create_provider(settings, stack)
 
         family, table = settings.family_id, settings.table_name
         profile_repo = ProfileRepository(ddb, table, family)
         card_repo = CardRepository(ddb, table, family)
+        quota_repo = QuotaRepository(ddb, table, family)
         cards = CardService(profile_repo, card_repo, storage, settings, clock)
         pins = PinService(profile_repo, settings, await _pin_token_secret(settings), clock)
+        quota = QuotaService(quota_repo, settings, clock)
+        artwork = ArtworkService(
+            cards=cards,
+            card_repo=card_repo,
+            quota_repo=quota_repo,
+            quota=quota,
+            storage=storage,
+            provider=provider,
+            settings=settings,
+            clock=clock,
+        )
         yield Services(
             cards=cards,
+            artwork=artwork,
             pins=pins,
+            quota=quota,
             storage=storage,
             profiles=profile_repo,
             dynamodb=ddb,
         )
+
+
+async def _create_provider(settings: Settings, stack: AsyncExitStack) -> ArtworkProvider:
+    if settings.artwork_provider == "mock":
+        return MockArtworkProvider(settings.mock_artwork_delay_seconds)
+    if not settings.openai_api_key:
+        raise RuntimeError("ARTWORK_PROVIDER=openai needs OPENAI_API_KEY")
+    api_key = settings.openai_api_key.get_secret_value()
+    return await stack.enter_async_context(openai_provider(settings, api_key))
 
 
 async def _pin_token_secret(settings: Settings) -> bytes:
@@ -76,6 +110,14 @@ def get_services(request: Request) -> Services:
 
 def get_card_service(request: Request) -> CardService:
     return get_services(request).cards
+
+
+def get_artwork_service(request: Request) -> ArtworkService:
+    return get_services(request).artwork
+
+
+def get_quota_service(request: Request) -> QuotaService:
+    return get_services(request).quota
 
 
 def get_pin_service(request: Request) -> PinService:
@@ -101,4 +143,6 @@ CardServiceDep = Annotated[CardService, Depends(get_card_service)]
 PinServiceDep = Annotated[PinService, Depends(get_pin_service)]
 BearerToken = Annotated[str | None, Depends(bearer_token)]
 RequireUnlocked = Depends(require_unlocked)
+ArtworkServiceDep = Annotated[ArtworkService, Depends(get_artwork_service)]
+QuotaServiceDep = Annotated[QuotaService, Depends(get_quota_service)]
 ServicesDep = Annotated[Services, Depends(get_services)]

@@ -3,11 +3,11 @@
     uvicorn pokemaker.main:app --reload
 
 The app runs as one long-lived process, so the lifespan below runs once at
-startup: every client (DynamoDB, S3) is created once and its connection pool
-is shared by all requests, and the event loop interleaves many requests that
-are mostly waiting on the network. That's what asyncio is good at. Correctness
-never depends on this process's memory, though: card versions and PIN attempt
-limits live in DynamoDB.
+startup: every client (DynamoDB, S3, OpenAI) is created once and its
+connection pool is shared by all requests, and the event loop interleaves
+many requests that are mostly waiting on the network. That's what asyncio is
+good at. Correctness never depends on this process's memory, though: quotas,
+idempotency and PIN attempt limits live in DynamoDB.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 
 from pokemaker.config import Settings, get_settings
 from pokemaker.dependencies import Services, ServicesDep, build_services
-from pokemaker.routes import cards, profiles
+from pokemaker.routes import artwork, cards, profiles
 from pokemaker.utils.errors import PokeMakerError
 from pokemaker.utils.logging import configure_logging
 from pokemaker.utils.middleware import BodySizeLimitMiddleware
@@ -63,7 +63,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=settings.cors_allow_origins,
             allow_methods=["GET", "POST", "PUT", "DELETE"],
-            allow_headers=["Content-Type", "Authorization"],
+            allow_headers=["Content-Type", "Idempotency-Key", "Authorization"],
         )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 
@@ -96,6 +96,7 @@ def create_app(
 
     app.include_router(profiles.router)
     app.include_router(cards.router)
+    app.include_router(artwork.router)
     return app
 
 

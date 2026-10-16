@@ -124,3 +124,59 @@ class CardRepository:
         )
         old = response.get("Attributes")
         return from_item(old) if old else None
+
+    async def allocate_artwork_version(self, profile_id: str, card_id: str) -> int | None:
+        """Reserve the next artwork version number (v1, v2, ...) for a card.
+
+        Allocating it atomically means two overlapping generations for the same
+        card write to different S3 keys instead of clobbering each other.
+        Returns None if the card was deleted.
+        """
+        try:
+            response = await self._client.update_item(
+                TableName=self._table,
+                Key=self._key(profile_id, card_id),
+                UpdateExpression="ADD artworkSeq :one",
+                ConditionExpression="attribute_exists(PK)",
+                ExpressionAttributeValues={":one": to_value(1)},
+                ReturnValues="UPDATED_NEW",
+            )
+        except ClientError as exc:
+            if is_condition_failed(exc):
+                return None
+            raise
+        return int(response["Attributes"]["artworkSeq"]["N"])
+
+    async def attach_artwork(
+        self, profile_id: str, card_id: str, key: str, version: int, updated_at: str
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Point the card at new artwork unless a newer version is already attached.
+
+        Returns ("attached" | "superseded" | "missing", card).
+
+        Deliberately does NOT bump the card's edit `version`: artwork and text
+        fields never overwrite each other, so a generation finishing mid-edit
+        shouldn't make the child's next autosave fail with a conflict.
+        """
+        try:
+            response = await self._client.update_item(
+                TableName=self._table,
+                Key=self._key(profile_id, card_id),
+                UpdateExpression="SET artworkKey = :key, artworkVersion = :v, updatedAt = :now",
+                ConditionExpression=(
+                    "attribute_exists(PK) AND "
+                    "(attribute_not_exists(artworkVersion) OR artworkVersion < :v)"
+                ),
+                ExpressionAttributeValues={
+                    ":key": to_value(key),
+                    ":v": to_value(version),
+                    ":now": to_value(updated_at),
+                },
+                ReturnValues="ALL_NEW",
+            )
+        except ClientError as exc:
+            if not is_condition_failed(exc):
+                raise
+            current = await self.get_card(profile_id, card_id)
+            return ("missing", None) if current is None else ("superseded", current)
+        return "attached", from_item(response["Attributes"])

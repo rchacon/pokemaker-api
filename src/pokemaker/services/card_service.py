@@ -168,6 +168,9 @@ class CardService:
             for item, url in zip(items, urls, strict=True)
         ]
 
+    async def card_from_item(self, item: dict[str, Any]) -> Card:
+        return (await self._to_cards([item]))[0]
+
 
 def _fields_for_storage(data: CardFields) -> dict[str, Any]:
     fields = data.model_dump(mode="json", by_alias=True, include=set(CardFields.model_fields))
