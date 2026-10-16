@@ -1,11 +1,11 @@
-"""Resource cleanup, the mock provider, and the Lambda entry point."""
+"""Resource cleanup, the mock provider, and the app lifespan."""
 
 import asyncio
 import json
 import time
 
+import httpx
 import pytest
-from mangum import Mangum
 
 from pokemaker.config import Settings
 from pokemaker.dependencies import build_services
@@ -59,30 +59,10 @@ async def test_rendering_runs_off_the_event_loop():
     assert ticks > 5
 
 
-def _http_api_event(path: str) -> dict:
-    return {
-        "version": "2.0",
-        "routeKey": "$default",
-        "rawPath": path,
-        "rawQueryString": "",
-        "headers": {"host": "api.example.com"},
-        "requestContext": {
-            "http": {
-                "method": "GET",
-                "path": path,
-                "protocol": "HTTP/1.1",
-                "sourceIp": "127.0.0.1",
-                "userAgent": "test",
-            },
-            "stage": "$default",
-            "requestId": "r1",
-        },
-        "isBase64Encoded": False,
-    }
-
-
-def test_lambda_handler_runs_lifespan_per_invocation(settings: Settings):
-    asyncio.run(create_table(settings))
+async def test_lifespan_opens_resources_once_for_many_requests(settings: Settings):
+    # A long-running server builds its clients once and shares them across
+    # requests (unlike Lambda, where every invocation started from scratch).
+    await create_table(settings)
     opened = 0
 
     def factory(s: Settings):
@@ -90,9 +70,11 @@ def test_lambda_handler_runs_lifespan_per_invocation(settings: Settings):
         opened += 1
         return build_services(s)
 
-    handler = Mangum(create_app(settings, services_factory=factory), lifespan="auto")
-    for _ in range(2):
-        response = handler(_http_api_event("/api/artwork/quota"), None)
-        assert response["statusCode"] == 200
-        assert json.loads(response["body"])["limit"] == 10
-    assert opened == 2
+    app = create_app(settings, services_factory=factory)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            responses = await asyncio.gather(*(client.get("/api/artwork/quota") for _ in range(5)))
+    assert [r.status_code for r in responses] == [200] * 5
+    assert json.loads(responses[0].text)["limit"] == 10
+    assert opened == 1

@@ -8,15 +8,14 @@ dependencies = [
     "fastapi>=0.143,<1",
     "pydantic>=2.14,<3",
     "pydantic-settings>=2.15,<3",
-    "mangum>=0.22,<1",
     "aioboto3>=15.5,<16",
     "openai>=3.29,<4",
     "httpx>=0.28,<1",
 ]
 
 [project.optional-dependencies]
-# Uvicorn is only needed to run the API locally; Lambda uses Mangum instead.
-local = ["uvicorn[standard]>=0.54,<1"]
+# The ASGI server: used locally and in the Docker image.
+server = ["uvicorn[standard]>=0.54,<1"]
 dev = [
     "uvicorn[standard]>=0.54,<1",
     "pytest>=9.1,<10",
@@ -40,7 +39,6 @@ testpaths = ["tests"]
 pythonpath = ["."]  # for `scripts.*`; the package itself is installed (pip install -e .)
 filterwarnings = [
     "ignore::DeprecationWarning:botocore.*",
-    "ignore:There is no current event loop:DeprecationWarning:mangum.*",
 ]
 
 [tool.ruff]

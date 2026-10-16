@@ -3,8 +3,9 @@
 Why async: an image generation call spends 10-60 s waiting on the network. With
 `AsyncOpenAI` that wait doesn't block the event loop, so a local Uvicorn worker
 keeps serving autosaves and gallery loads while a generation is in flight.
-(In Lambda each invocation handles one request, so there the benefit is clean
-timeout/cancellation handling rather than throughput.)
+The server runs one long-lived process, so this is where asyncio pays off:
+while one child's artwork is being drawn, the same event loop keeps serving
+everyone else's requests.
 
 Note: openai-python 3.x is built on `httpx2`, the successor of `httpx`, so the
 HTTP client we hand it is an `httpx2.AsyncClient`.

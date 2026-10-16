@@ -263,7 +263,7 @@ async def test_older_generation_does_not_overwrite_newer_artwork(services: Servi
 async def test_stale_pending_request_is_released_on_read(
     client: httpx.AsyncClient, services: Services, clock, card: dict
 ):
-    # Simulate a Lambda that reserved quota and then died before calling OpenAI.
+    # Simulate a process that reserved quota and then died before calling OpenAI.
     key = str(uuid.uuid4())
     record = {
         "requestId": key,

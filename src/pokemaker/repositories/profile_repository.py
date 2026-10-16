@@ -50,7 +50,7 @@ class ProfileRepository:
         """Atomically allocate the next card number for a profile.
 
         `ADD` is applied atomically by DynamoDB, so two concurrent creates can
-        never get the same number, across any number of Lambda instances. If the
+        never get the same number, however many processes are running. If the
         card write that follows fails, the number is simply skipped.
         """
         response = await self._client.update_item(

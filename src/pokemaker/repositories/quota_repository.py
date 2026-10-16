@@ -6,9 +6,10 @@ DynamoDB transactions, so they share a repository:
     PK = FAMILY#belchers  SK = QUOTA#ARTWORK#2026-10-13   generationCount, generationLimit, ...
     PK = FAMILY#belchers  SK = GENERATION#<requestId>     status, reservation, ...
 
-Why DynamoDB and not an asyncio.Lock or in-memory counter? Each Lambda instance
-(and each Uvicorn worker) has its own memory and event loop; a lock in one is
-invisible to the others. DynamoDB conditional writes are evaluated atomically on
+Why DynamoDB and not an asyncio.Lock or in-memory counter? Every process (a
+restarted container, a second server, a local dev server against the same
+table) has its own memory and event loop; a lock in one is invisible to the
+others. DynamoDB conditional writes are evaluated atomically on
 the server, so they are correct no matter how many processes race.
 """
 

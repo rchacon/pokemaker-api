@@ -17,11 +17,12 @@ each failure path decides explicitly what happens to the reserved quota slot:
 Ambiguous outcomes are never retried automatically — a retry could pay twice.
 The child can press the button again, which is a new, deliberate request.
 
-Everything happens inside the HTTP request: no detached asyncio tasks or
-FastAPI BackgroundTasks, because Lambda may freeze or end the process as soon
-as the response is returned. If API Gateway's 30 s timeout cuts the HTTP
-response short, the Lambda invocation keeps running to completion and the
-client reads the result via GET /api/artwork/requests/{requestId}.
+For now everything happens inside the HTTP request. If CloudFront's origin
+timeout cuts the response short, the handler still runs to completion (a
+dropped connection doesn't cancel it) and the client reads the result via
+GET /api/artwork/requests/{requestId}. On the long-lived server a generation
+could instead be a server-owned asyncio task that streams partial images;
+see pokemaker-api issue #2.
 """
 
 from __future__ import annotations
@@ -74,7 +75,7 @@ from pokemaker.utils.errors import (
 
 logger = logging.getLogger(__name__)
 
-STALE_AFTER = timedelta(minutes=5)  # comfortably longer than the Lambda timeout
+STALE_AFTER = timedelta(minutes=5)  # comfortably longer than any provider call
 STORAGE_TIMEOUT_SECONDS = 15
 STORAGE_ATTEMPTS = 3
 
@@ -487,7 +488,7 @@ class ArtworkService:
         raise error_cls(message)
 
     async def _reconcile_if_stale(self, record: GenerationRecord) -> GenerationRecord:
-        """Settle a record whose process died mid-flight (e.g. Lambda timed out).
+        """Settle a record whose process died mid-flight (e.g. the server restarted).
 
         PENDING: the provider was never called, so release the slot.
         CALLING_PROVIDER / STORING: outcome unknown or image paid, so consume it.

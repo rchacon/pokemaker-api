@@ -22,7 +22,7 @@ BOTO_CONFIG = Config(
 @lru_cache
 def get_session() -> aioboto3.Session:
     # Creating a session is cheap, but it owns botocore's loader cache (the parsed
-    # service models). Reusing one session keeps warm Lambda invocations fast.
+    # service models). Reusing one session keeps client creation fast.
     # This is a cache, not application state: nothing depends on it for correctness.
     return aioboto3.Session()
 

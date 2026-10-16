@@ -34,8 +34,8 @@ from pokemaker.utils.clock import Clock, utc_now
 
 logger = logging.getLogger(__name__)
 
-# SSM secrets cached across warm Lambda invocations so we don't call SSM on
-# every request. Purely a cache: a cold start just fetches them again.
+# SSM secrets are fetched once per process start. Purely a cache: a restart
+# simply fetches them again (e.g. after rotating a secret).
 _ssm_cache: dict[str, str] = {}
 
 
@@ -119,6 +119,15 @@ async def _pin_token_secret(settings: Settings) -> bytes:
     if len(value) < 32:
         raise RuntimeError("PIN_TOKEN_SECRET must be at least 32 characters")
     return value.encode()
+
+
+async def resolve_origin_secret(settings: Settings) -> bytes | None:
+    """The CloudFront origin secret, or None when not configured (local dev)."""
+    if settings.origin_verify_secret:
+        return settings.origin_verify_secret.get_secret_value().encode()
+    if settings.origin_verify_secret_ssm_parameter:
+        return (await _ssm_secret(settings, settings.origin_verify_secret_ssm_parameter)).encode()
+    return None
 
 
 async def _ssm_secret(settings: Settings, name: str) -> str:

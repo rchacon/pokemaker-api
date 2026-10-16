@@ -1,8 +1,9 @@
 # pokemaker-api
 
 Async Python backend for **PokeMaker**, a family trading-card creator. FastAPI +
-Pydantic v2 on top of DynamoDB, S3 and the OpenAI Images API. It runs locally with
-Uvicorn, and in AWS Lambda through Mangum, using the same code.
+Pydantic v2 on top of DynamoDB, S3 and the OpenAI Images API. It runs as one
+long-lived Uvicorn process: locally with `--reload`, and in production as a Docker
+image (`ghcr.io/rchacon/pokemaker-api`) on an EC2 instance behind CloudFront.
 
 Sibling repositories: [`pokemaker-app`](../pokemaker-app) (React frontend) and
 [`pokemaker-infra`](../pokemaker-infra) (Terraform).
@@ -58,6 +59,14 @@ To use OpenAI (this costs money):
 # in .env
 ARTWORK_PROVIDER=openai
 OPENAI_API_KEY=sk-...
+```
+
+### Running the Docker image locally (optional)
+
+The same image that runs in production can run against the local containers:
+
+```bash
+API_PORT=8002 docker compose --profile api up --build api   # http://localhost:8002/api/health
 ```
 
 ### Tests
@@ -118,7 +127,7 @@ Notable codes: `VALIDATION_ERROR` 422, `PROFILE_NOT_FOUND`/`CARD_NOT_FOUND` 404,
 
 ```text
 src/pokemaker/         The `pokemaker` package (src layout: imports never mention `src`)
-├── main.py            FastAPI app, lifespan, error handlers, Mangum `handler`
+├── main.py            FastAPI app, lifespan, error handlers, middleware order
 ├── config.py          Settings from env (model/size/quality allowlists)
 ├── dependencies.py    build_services(): opens/closes all clients; FastAPI deps
 ├── routes/            Thin HTTP handlers
@@ -126,13 +135,15 @@ src/pokemaker/         The `pokemaker` package (src layout: imports never mentio
 ├── services/          Business logic: cards, quota, artwork state machine
 ├── repositories/      DynamoDB access: conditional writes and transactions
 ├── integrations/      aioboto3 DynamoDB/S3, AsyncOpenAI, mock artwork provider
-└── utils/             DynamoDB keys, clock, errors, JSON logging, body-size limit
+└── utils/             DynamoDB keys, clock, errors, JSON logging, body-size limit,
+                       edge.py: CloudFront origin check + per-IP rate limit
 scripts/
 ├── init_local.py              Create local table + bucket, then seed
 ├── seed_profiles.py           Seed profiles and the "Layla" sample card (local or AWS)
 ├── reconcile_generations.py   Settle generation requests stuck mid-flight
 ├── reset_pin.py               Remove a profile's PIN (e.g. a parent forgot theirs)
-└── build_lambda.sh            Build dist/lambda.zip (arm64, python3.12)
+└── deploy.sh                  Deploy a published image to the EC2 server (via SSM)
+Dockerfile                     The production image (python:3.12-slim, non-root)
 ```
 
 ---
@@ -179,9 +190,18 @@ This codebase is also a place to practise `asyncio`. The patterns used, and why:
 
 **Concurrency vs. parallelism.** `asyncio` interleaves many waiting tasks on one
 thread. That makes I/O-heavy code fast, but it never runs two pieces of Python at
-the same moment. CPU-heavy work needs processes, or more Lambda instances.
+the same moment. CPU-heavy work needs processes.
 
-**What asyncio does *not* solve here: cross-process races.** Two Lambda instances
+**Where it pays off.** Production runs a single Uvicorn process. Its lifespan runs
+once, so every client and connection pool is created once and shared, and the
+event loop interleaves many requests that are mostly waiting on DynamoDB, S3 or
+OpenAI. While one child's artwork takes 40 s, everyone else's autosaves and gallery
+loads keep flowing on the same loop. The in-app rate limiter (`utils/edge.py`)
+shows the other side of that model: its check-and-update never awaits, so no lock
+is needed even though many requests share it.
+
+**What asyncio does *not* solve here: cross-process races.** Two processes (a
+restarted container, a second server, your dev server against the same table)
 share no memory, so an `asyncio.Lock` or an in-memory counter can't enforce a
 quota or prevent lost updates. Every correctness rule lives in a DynamoDB
 conditional write or transaction:
@@ -196,13 +216,12 @@ conditional write or transaction:
   overwrite a newer one. Artwork attachment doesn't bump the card's edit `version`,
   so a generation that finishes mid-edit never causes an autosave conflict.
 
-**Lambda specifics.** Mangum runs the lifespan around every invocation, because
-async clients are bound to the event loop that created them. Botocore's parsed
-service models and the SSM-fetched OpenAI key are cached at module level, purely
-as performance caches. There are no `BackgroundTasks` or detached tasks: Lambda
-may freeze the process the moment a response is returned. If PokeMaker ever needs
-durable background work (for example batch generation), send it to **SQS**, with a
-worker Lambda, rather than spawning tasks.
+**Background work.** On a long-lived server, a generation could outlive its HTTP
+request as a server-owned asyncio task that streams partial images (issue #2).
+The rule that keeps that safe: the task may *hold* work in memory, but every
+outcome is recorded in DynamoDB, so a restart mid-task is settled by the
+reconcile logic. Work that must survive restarts or be retried belongs in a
+queue (SQS) instead.
 
 ---
 
@@ -237,19 +256,19 @@ recorded and each failure decides explicitly what happens to the quota slot:
 The OpenAI SDK runs with `max_retries=0`, because an SDK retry after a timeout
 could pay twice.
 
-**API Gateway's 30-second limit.** HTTP APIs cut responses off at 30 s, but image
-generation can take longer. The Lambda keeps running after API Gateway gives up
-(Lambda timeout: 120 s), finishes, and records the result. The frontend then polls
-`GET /api/artwork/requests/{requestId}` with the same id. Stale records are
-reconciled whenever they are read, and `scripts/reconcile_generations.py` sweeps
-all of them.
+**Proxy timeouts.** CloudFront waits up to 60 s for the server to respond. If a
+generation takes longer, the dropped connection doesn't cancel the handler: it
+finishes and records the result, and the frontend polls
+`GET /api/artwork/requests/{requestId}` with the same id. Stale records (for
+example after a restart) are reconciled whenever they are read, and
+`scripts/reconcile_generations.py` sweeps all of them.
 
 ---
 
 ## Cost controls
 
 - Server-side daily quota (`DAILY_GENERATION_LIMIT`, default 10 per family per UTC
-  day), enforced atomically across all Lambda instances.
+  day), enforced atomically in DynamoDB however many processes run.
 - Model, size and quality are fixed server-side and validated against allowlists
   (`gpt-image-1-mini`, medium quality, 1536×1024, `n=1`). The client can't change them.
 - Descriptions are capped at 400 characters, request bodies at 32 KB, and image
@@ -260,7 +279,8 @@ all of them.
 - **In the OpenAI dashboard:** use a dedicated project with a low monthly budget
   and email alerts. Budgets and alerts are *not* a guaranteed hard cap, which is
   why the server-side quota exists.
-- API Gateway throttling and Lambda reserved concurrency are set in `pokemaker-infra`.
+- A per-IP rate limit (`RATE_LIMIT_PER_MINUTE`, default 600; a family shares one IP)
+  and the CloudFront origin check run in the app (`utils/edge.py`).
 
 ---
 
@@ -326,20 +346,38 @@ See `.env.example`. The most important variables:
 | `TABLE_NAME` / `ARTWORK_BUCKET` | `pokemaker` / `pokemaker-artwork-local` | |
 | `DYNAMODB_ENDPOINT_URL`, `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL` | unset | Local containers only |
 | `ARTWORK_PROVIDER` | `mock` | `mock` or `openai` |
-| `OPENAI_API_KEY` | unset | Local only; Lambda uses `OPENAI_API_KEY_SSM_PARAMETER` |
+| `OPENAI_API_KEY` | unset | Local only; the server uses `OPENAI_API_KEY_SSM_PARAMETER` |
 | `OPENAI_IMAGE_MODEL` / `_QUALITY` / `_SIZE` | `gpt-image-1-mini` / `medium` / `1536x1024` | Allowlisted |
 | `OPENAI_TIMEOUT_SECONDS` | `90` | |
 | `DAILY_GENERATION_LIMIT` | `10` | Family-wide, per UTC day |
-| `PIN_TOKEN_SECRET` | **required** | ≥ 32 chars; signs unlock tokens. Lambda uses `PIN_TOKEN_SECRET_SSM_PARAMETER` |
+| `PIN_TOKEN_SECRET` | **required** | ≥ 32 chars; signs unlock tokens. The server uses `PIN_TOKEN_SECRET_SSM_PARAMETER` |
 | `PIN_TOKEN_TTL_MINUTES` / `PIN_MAX_ATTEMPTS` / `PIN_LOCKOUT_MINUTES` | `120` / `5` / `5` | |
+| `ORIGIN_VERIFY_SECRET` / `_SSM_PARAMETER` | unset | When set, requests must carry CloudFront's `X-Origin-Verify` header (else 403) |
+| `RATE_LIMIT_PER_MINUTE` | `600` | Per client IP; `0` disables |
+| `TRUST_FORWARDED_FOR` | `false` | `true` behind CloudFront: rate-limit by the last `X-Forwarded-For` hop |
 | `CORS_ALLOW_ORIGINS` | `["http://localhost:5173"]` | Leave empty in AWS (same origin via CloudFront) |
 
 ## Deploying
 
-```bash
-./scripts/build_lambda.sh   # → dist/lambda.zip
-```
+Production is a Docker container on an EC2 instance behind CloudFront, provisioned
+by [`pokemaker-infra`](../pokemaker-infra).
 
-Then apply `pokemaker-infra`, which points at this zip by default. To seed profiles
-in AWS, run `seed_profiles.py` without the local endpoint variables, with AWS
-credentials and `TABLE_NAME` set to the deployed table.
+1. **Publish an image.** CI builds an arm64 image on every pull request. On pushes
+   to `main` (or a manual run of the CI workflow) it publishes
+   `ghcr.io/rchacon/pokemaker-api:sha-<commit>` and `:main`.
+2. **Deploy it:**
+
+   ```bash
+   ./scripts/deploy.sh            # the image for the current commit
+   ./scripts/deploy.sh main       # or any published tag
+   ```
+
+   This runs `pokemaker-deploy` on the instance through SSM Run Command (no SSH).
+   The server pulls the image, swaps the container, health-checks
+   `/api/health`, and rolls back to the previous image if the check fails.
+
+Settings come from an SSM parameter that Terraform writes; secrets are read from
+SSM at startup with the instance's IAM role. Nothing secret is in the image.
+
+To seed profiles in AWS, run `seed_profiles.py` without the local endpoint
+variables, with AWS credentials and `TABLE_NAME` set to the deployed table.
